@@ -1,4 +1,6 @@
-# Dataset para Avaliação de Danos Agênticos em contexto linguístico Português Brasileiro (DADAPTBR)
+# DDADA-PT-BR
+
+Dataset para Avaliação de Danos Agênticos em contexto linguístico Português Brasileiro (DADA-PT-BR), projetado para apoiar a validação de segurança de agentes de LLM em Português do Brasil.
 
 ## Quick Start
 
@@ -29,7 +31,7 @@ uv run main.py files
 ## Available Datasets
 
 - `agent_harm_chat`: AI Safety Institute AgentHarm chat dataset
-- `agent_harm_harmful`: AI Safety Institute AgentHarm harmful dataset  
+- `agent_harm_harmful`: AI Safety Institute AgentHarm harmful dataset
 - `agent_harm_harmless`: AI Safety Institute AgentHarm harmless dataset
 - `alert`: Babelscape ALERT dataset
 - `alert_adversarial`: Babelscape ALERT adversarial dataset
