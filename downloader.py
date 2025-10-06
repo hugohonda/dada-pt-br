@@ -83,8 +83,8 @@ def main():
         for name, url in DATASETS.items():
             print(f"  {name}: {url}")
         print("\nAvailable models:")
-        for name, config in MODELS.items():
-            print(f"  {name}: {config['description']}")
+        for name, repo in MODELS.items():
+            print(f"  {name}: {repo}")
         return
 
     target_name = sys.argv[1]
@@ -102,8 +102,8 @@ def main():
         for name, url in DATASETS.items():
             print(f"  {name}: {url}")
         print("\nAvailable models:")
-        for name, config in MODELS.items():
-            print(f"  {name}: {config['description']}")
+        for name, repo in MODELS.items():
+            print(f"  {name}: {repo}")
         return
 
 

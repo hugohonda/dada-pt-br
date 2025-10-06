@@ -1,14 +1,10 @@
 # Virtual environments
 .venv
 
-# Datasets
 datasets/
-
-# Logs
 logs/
-
-# Reports
 reports/
+models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

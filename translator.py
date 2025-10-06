@@ -36,28 +36,14 @@ _LOGGER = setup_logger("translator", log_to_file=True, log_prefix="translation")
 
 def load_prompt(prompt_type: str) -> str:
     """Load translation prompt based on type."""
-    prompt_files = {
-        "single": "prompts/translation_single.md",
-        "multilingual": "prompts/translation_multilingual.md",
-        "safety": "prompts/translation_safety.md",
-    }
-
-    prompt_file = prompt_files.get(prompt_type, "prompts/translation_single.md")
+    prompt_file = f"prompts/translation_{prompt_type}.md"
 
     try:
         with open(prompt_file, encoding="utf-8") as f:
             return f.read().strip()
-    except FileNotFoundError:
-        _LOGGER.error(f"Translation prompt file not found: {prompt_file}")
-        # Fallback prompt
-        return """[INST]Translate the following text from English to Brazilian Portuguese. Don't translate slang literally and use the best colloquial adaptation. Complete only with the translation, don't create notes, justification, etc.[/INST]
-[Source: English]
-\"\"\"
-{text}
-\"\"\"
-[Translation: Portuguese from Brazil]
-\"\"\"
-"""
+    except FileNotFoundError as e:
+        _LOGGER.warning(f"Prompt file not found: {prompt_file}, using default")
+        raise FileNotFoundError(f"Prompt file not found: {prompt_file}") from e
 
 
 def init_ollama():

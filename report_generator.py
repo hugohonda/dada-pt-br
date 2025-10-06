@@ -79,36 +79,15 @@ def get_model_info():
 
 
 def get_system_info():
-    """Get comprehensive system information."""
+    """Get basic system information."""
     try:
         return {
-            "platform": {
-                "system": platform.system(),
-                "release": platform.release(),
-                "version": platform.version(),
-                "machine": platform.machine(),
-                "processor": platform.processor(),
-                "python_version": platform.python_version(),
-            },
-            "cpu": {
-                "count": psutil.cpu_count(),
-                "count_logical": psutil.cpu_count(logical=True),
-                "freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else None,
-            },
-            "memory": {
-                "total": psutil.virtual_memory().total,
-                "available": psutil.virtual_memory().available,
-                "percent": psutil.virtual_memory().percent,
-            },
-            "disk": {
-                "total": psutil.disk_usage("/").total,
-                "used": psutil.disk_usage("/").used,
-                "free": psutil.disk_usage("/").free,
-                "percent": psutil.disk_usage("/").percent,
-            },
+            "platform": platform.system(),
+            "python_version": platform.python_version(),
+            "cpu_count": psutil.cpu_count(),
+            "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 1),
         }
     except Exception as e:
-        _LOGGER.warning(f"Could not get system info: {e}")
         return {"error": str(e)}
 
 

@@ -75,32 +75,18 @@ def evaluate_batch(model, data_batch, batch_size=8):
 
 def process_dataset(input_file, output_file, limit=None):
     """Process dataset for evaluation."""
-    # Load data
-    try:
-        data = load_json_file(input_file)
-    except Exception as e:
-        _LOGGER.error(f"Error loading dataset: {e}")
-        return
-
+    data = load_json_file(input_file)
     if not data:
         _LOGGER.error("Empty dataset")
         return
 
-    # Limit examples if specified
     if limit:
         data = data[:limit]
 
     dataset_type = detect_dataset_type(data[0])
     _LOGGER.info(f"Evaluating {len(data)} examples ({dataset_type})")
 
-    # Load model
-    _LOGGER.info("Loading XCOMET-XL...")
-    try:
-        model = load_xcomet_model()
-        _LOGGER.info("Model loaded")
-    except Exception as e:
-        _LOGGER.error(f"Error loading model: {e}")
-        return
+    model = load_xcomet_model()
 
     # Prepare data for batch processing
     xcomet_data = []

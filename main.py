@@ -49,30 +49,16 @@ def list_models():
 
 def list_files():
     """List downloaded files."""
-    raw_dir = "datasets/raw"
-    processed_dir = "datasets/processed"
-    evaluation_dir = "datasets/evaluation"
+    dirs = ["datasets/raw", "datasets/processed", "datasets/evaluation"]
 
-    print("Downloaded files:")
-    print("-" * 20)
-    if os.path.exists(raw_dir):
-        for file in sorted(os.listdir(raw_dir)):
-            if file.endswith(".json"):
-                print(f"raw/{file}")
-
-    print("\nProcessed files:")
-    print("-" * 20)
-    if os.path.exists(processed_dir):
-        for file in sorted(os.listdir(processed_dir)):
-            if file.endswith(".json"):
-                print(f"processed/{file}")
-
-    print("\nEvaluation files:")
-    print("-" * 20)
-    if os.path.exists(evaluation_dir):
-        for file in sorted(os.listdir(evaluation_dir)):
-            if file.endswith(".json"):
-                print(f"evaluation/{file}")
+    for dir_name in dirs:
+        if os.path.exists(dir_name):
+            files = [f for f in os.listdir(dir_name) if f.endswith(".json")]
+            if files:
+                print(f"\n{dir_name.split('/')[-1].title()} files:")
+                print("-" * 20)
+                for file in sorted(files):
+                    print(f"{dir_name.split('/')[-1]}/{file}")
 
 
 def main():
