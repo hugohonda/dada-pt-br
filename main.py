@@ -13,6 +13,7 @@ def show_help():
     print("Commands:")
     print("  download <dataset>     - Download dataset")
     print("  translate <file>       - Translate dataset file")
+    print("  evaluate <file>        - Evaluate translation quality")
     print("  list                   - List available datasets")
     print("  files                  - List downloaded files")
     print("  help                   - Show this help")
@@ -23,6 +24,7 @@ def show_help():
     print("  python main.py translate datasets/raw/agent_harm_chat_test_public.json")
     print("  python main.py translate dataset.json --workers=8")
     print("  python main.py translate dataset.json --output=output.json --workers=8")
+    print("  python main.py evaluate dataset.json --limit=100")
 
 
 def list_datasets():
@@ -75,13 +77,24 @@ def main():
         os.system(f"python downloader.py {' '.join(sys.argv[2:])}")
     elif command == "translate":
         if len(sys.argv) < 3:
-            print("Usage: python main.py translate <file> [--output=file] [--workers=N]")
+            print(
+                "Usage: python main.py translate <file> [--output=file] [--workers=N]"
+            )
             print("Examples:")
             print("  python main.py translate dataset.json")
             print("  python main.py translate dataset.json --workers=8")
-            print("  python main.py translate dataset.json --output=output.json --workers=8")
+            print(
+                "  python main.py translate dataset.json --output=output.json --workers=8"
+            )
             return
         os.system(f"python translator.py {' '.join(sys.argv[2:])}")
+    elif command == "evaluate":
+        if len(sys.argv) < 3:
+            print(
+                "Usage: python main.py evaluate <file> [--output=file] [--limit=N] [--workers=N]"
+            )
+            return
+        os.system(f"python evaluator.py {' '.join(sys.argv[2:])}")
     else:
         print(f"Unknown command: {command}")
         show_help()

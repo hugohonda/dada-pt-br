@@ -5,8 +5,10 @@ import sys
 from dotenv import load_dotenv
 
 from config.datasets import DATASETS
-from config.logging import _LOGGER
+from config.logging import setup_logger
 from datasets import load_dataset
+
+_LOGGER = setup_logger("downloader", log_to_file=True, log_prefix="download")
 
 
 def download_dataset(dataset_id: str, output_dir: str = "datasets/raw"):

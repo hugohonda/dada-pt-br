@@ -8,7 +8,9 @@ from typing import Any
 import ollama
 import psutil
 
-from config.logging import _LOGGER
+from config.logging import setup_logger
+
+_LOGGER = setup_logger("report_generator", log_to_file=True, log_prefix="report")
 
 # Global tracking variables
 _translation_stats = {

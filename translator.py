@@ -10,13 +10,15 @@ import ollama
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from config.logging import _LOGGER
+from config.logging import setup_logger
 from report_generator import (
     add_translation_result,
     end_translation,
     generate_translation_report,
     start_translation,
 )
+
+_LOGGER = setup_logger("translator", log_to_file=True, log_prefix="translation")
 
 
 def get_timestamp() -> str:

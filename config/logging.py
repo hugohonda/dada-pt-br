@@ -4,13 +4,20 @@ import sys
 from datetime import datetime
 
 
-def setup_logger(name: str = "dadaptbr", log_to_file: bool = True) -> logging.Logger:
+def setup_logger(
+    name: str = "dadaptbr",
+    log_to_file: bool = True,
+    log_prefix: str = "translation",
+    custom_timestamp: str = None,
+) -> logging.Logger:
     """
     Set up a comprehensive logger with file and console output.
 
     Args:
         name: Logger name
         log_to_file: Whether to log to file
+        log_prefix: Prefix for log file name (default: "translation")
+        custom_timestamp: Custom timestamp for log file (default: auto-generated)
 
     Returns:
         Logger instance
@@ -29,8 +36,11 @@ def setup_logger(name: str = "dadaptbr", log_to_file: bool = True) -> logging.Lo
     # File handler (if enabled)
     if log_to_file:
         os.makedirs("logs", exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"logs/translation_{timestamp}.log"
+        if custom_timestamp is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        else:
+            timestamp = custom_timestamp
+        log_file = f"logs/{log_prefix}_{timestamp}.log"
 
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
@@ -43,6 +53,3 @@ def setup_logger(name: str = "dadaptbr", log_to_file: bool = True) -> logging.Lo
         logger.info(f"Logging to file: {log_file}")
 
     return logger
-
-
-_LOGGER = setup_logger()
