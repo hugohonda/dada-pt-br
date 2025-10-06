@@ -9,7 +9,7 @@ import logging
 import os
 import warnings
 
-from comet import download_model, load_from_checkpoint
+from comet import load_from_checkpoint
 
 from config.logging import setup_logger
 from utils import (
@@ -35,17 +35,53 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 
 
 def load_xcomet_model():
-    """Load XCOMET-XL model from Hugging Face cache or download if not available."""
+    """Load XCOMET-XL model from local models folder."""
     try:
         _LOGGER.info("Loading XCOMET-XL model...")
-        model_path = download_model("Unbabel/XCOMET-XL")
+        model_path = os.path.join("models", "xcomet-xl", "checkpoints", "model.ckpt")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found at {model_path}")
         model = load_from_checkpoint(model_path)
         _LOGGER.info("Model loaded successfully")
         return model
 
     except Exception as e:
         _LOGGER.error(f"Error loading XCOMET-XL model: {e}")
+        _LOGGER.error("Please run: uv run main.py download xcomet-xl")
         raise
+
+
+def generate_evaluation_summary(report, summary_file):
+    """Generate a human-readable evaluation summary report."""
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write("=" * 60 + "\n")
+        f.write("TRANSLATION EVALUATION REPORT SUMMARY\n")
+        f.write("=" * 60 + "\n\n")
+
+        # Evaluation Summary
+        summary = report["evaluation_summary"]
+        f.write("EVALUATION SUMMARY:\n")
+        f.write(f"  Timestamp: {summary['timestamp']}\n")
+        f.write(f"  Input File: {summary['input_file']}\n")
+        f.write(f"  Output File: {summary['output_file']}\n")
+        f.write(f"  Dataset Type: {summary['dataset_type']}\n")
+        f.write(f"  Total Examples: {summary['total_examples']}\n")
+        f.write(f"  Evaluated Examples: {summary['evaluated_examples']}\n")
+        f.write(f"  Limit: {summary['limit'] or 'All'}\n")
+        f.write(f"  Mean Score: {summary['mean_score']}\n")
+        f.write(f"  Min Score: {summary['min_score']}\n")
+        f.write(f"  Max Score: {summary['max_score']}\n\n")
+
+        # Model Information
+        f.write("MODEL INFORMATION:\n")
+        model = report["model_information"]
+        for key, value in model.items():
+            f.write(f"  {key.replace('_', ' ').title()}: {value}\n")
+        f.write("\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("End of Report\n")
+        f.write("=" * 60 + "\n")
 
 
 def evaluate_batch(model, data_batch, batch_size=8):
@@ -144,37 +180,50 @@ def process_dataset(input_file, output_file, limit=None):
 
     # Calculate statistics
     scores = [r["score"] for r in results if r["score"] > 0]
-
-    summary = {
-        "dataset_info": {
-            "input_file": input_file,
-            "dataset_type": dataset_type,
-            "total_examples": len(data),
-            "evaluated": len(results),
-            "limit": limit,
-        },
-        "statistics": {
-            "mean_score": sum(scores) / len(scores) if scores else 0.0,
-            "min_score": min(scores) if scores else 0.0,
-            "max_score": max(scores) if scores else 0.0,
-            "total_evaluated": len(scores),
-        },
-        "results": results,
-    }
+    mean_score = sum(scores) / len(scores) if scores else 0.0
+    min_score = min(scores) if scores else 0.0
+    max_score = max(scores) if scores else 0.0
 
     # Save files
     save_json_file(results, output_file)
 
-    # Save report
+    # Generate concise evaluation report
     timestamp = get_timestamp()
-    report_file = f"reports/{os.path.splitext(os.path.basename(input_file))[0]}_evaluation_report_{timestamp}.json"
+    report_file = f"reports/evaluation_report_{timestamp}.json"
+    summary_file = f"reports/evaluation_summary_{timestamp}.txt"
     ensure_directory_exists("reports")
-    save_json_file(summary, report_file)
+
+    # Create concise report
+    report = {
+        "evaluation_summary": {
+            "timestamp": timestamp,
+            "input_file": input_file,
+            "output_file": output_file,
+            "dataset_type": dataset_type,
+            "total_examples": len(data),
+            "evaluated_examples": len(scores),
+            "limit": limit,
+            "mean_score": round(mean_score, 4),
+            "min_score": round(min_score, 4),
+            "max_score": round(max_score, 4),
+        },
+        "model_information": {
+            "name": "XCOMET-XL",
+            "repo_id": "Unbabel/XCOMET-XL",
+            "local_path": "models/xcomet-xl",
+        },
+    }
+
+    save_json_file(report, report_file)
+
+    # Generate human-readable summary
+    generate_evaluation_summary(report, summary_file)
 
     _LOGGER.info(f"Evaluated data saved to {output_file}")
     _LOGGER.info(f"Line-by-line backup saved to {jsonl_file}")
     _LOGGER.info(f"Evaluation report saved to {report_file}")
-    _LOGGER.info(f"Average score: {summary['statistics']['mean_score']:.4f}")
+    _LOGGER.info(f"Evaluation summary saved to {summary_file}")
+    _LOGGER.info(f"Average score: {mean_score:.4f}")
 
 
 def main():

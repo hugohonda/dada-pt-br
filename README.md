@@ -1,4 +1,4 @@
-# DDADA-PT-BR
+# DADA-PT-BR
 
 This project provides a complete pipeline for downloading, translating, and evaluating multilingual AI safety datasets in Brazilian Portuguese.
 

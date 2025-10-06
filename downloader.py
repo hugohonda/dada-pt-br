@@ -54,9 +54,10 @@ def download_model(model_name: str):
 
     try:
         _LOGGER.info(f"Downloading {model_name} ({repo_id})...")
-
-        # Use snapshot_download for all models
-        local_dir = snapshot_download(repo_id=repo_id)
+        models_dir = "models"
+        ensure_directory_exists(models_dir)
+        local_model_dir = os.path.join(models_dir, model_name)
+        local_dir = snapshot_download(repo_id=repo_id, local_dir=local_model_dir)
         _LOGGER.info(f"Model downloaded to {local_dir}")
 
         _LOGGER.info(f"Successfully downloaded {model_name}")
