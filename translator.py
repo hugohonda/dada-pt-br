@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+"""
+Dataset translator using Ollama with Gemma3.
+"""
+
 import argparse
-import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from typing import Any
 
 import ollama
@@ -17,50 +20,22 @@ from report_generator import (
     generate_translation_report,
     start_translation,
 )
+from utils import (
+    detect_dataset_type,
+    ensure_directory_exists,
+    generate_output_filename,
+    load_json_file,
+    load_jsonl_file,
+    save_json_file,
+    save_jsonl_line,
+    validate_file_exists,
+)
 
 _LOGGER = setup_logger("translator", log_to_file=True, log_prefix="translation")
 
 
-def get_timestamp() -> str:
-    """Get standardized timestamp for filenames."""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def generate_output_filename(input_file: str) -> str:
-    """Generate output filename with timestamp pattern."""
-    # Extract base name without extension
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
-    timestamp = get_timestamp()
-
-    # Create processed directory path
-    processed_dir = "datasets/processed"
-    os.makedirs(processed_dir, exist_ok=True)
-
-    return os.path.join(processed_dir, f"{base_name}_translated_{timestamp}.json")
-
-
-def detect_dataset_type(example: dict[str, Any]) -> str:
-    """Detect dataset type based on example structure."""
-    keys = set(example.keys())
-
-    # M-ALERT multilingual dataset
-    if "fr" in keys and "de" in keys and "es" in keys and "it" in keys and "en" in keys:
-        return "multilingual"
-
-    # AgentHarm safety dataset
-    if "category" in keys and "prompt" in keys and "name" in keys:
-        return "safety"
-
-    # ALERT dataset
-    if "category" in keys and "prompt" in keys:
-        return "safety"
-
-    # Default to single language
-    return "single"
-
-
-def load_translation_prompt(prompt_type: str) -> str:
-    """Load appropriate translation prompt based on type."""
+def load_prompt(prompt_type: str) -> str:
+    """Load translation prompt based on type."""
     prompt_files = {
         "single": "prompts/translation_single.md",
         "multilingual": "prompts/translation_multilingual.md",
@@ -85,8 +60,8 @@ def load_translation_prompt(prompt_type: str) -> str:
 """
 
 
-def init_ollama_client():
-    """Initialize and return Ollama client."""
+def init_ollama():
+    """Initialize Ollama client."""
     try:
         client = ollama.Client()
         _LOGGER.info("Connected to Ollama")
@@ -108,7 +83,7 @@ def init_ollama_client():
 
 
 def translate_text(text: str, client, prompt_template: str, **kwargs) -> str:
-    """Translate text using Gemma3 with context."""
+    """Translate text using Gemma3."""
     prompt = prompt_template.format(text=text, **kwargs)
 
     try:
@@ -184,7 +159,7 @@ def translate_example(
     return translated
 
 
-def translate_single_example(args):
+def translate_single(args):
     """Translate a single example - used for parallel processing."""
     example, client, prompt_template, dataset_type, index = args
     start_time = time.time()
@@ -212,18 +187,21 @@ def translate_single_example(args):
         }
 
 
-def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> None:
-    """Process and translate a dataset file with line-by-line saving and resume capability."""
+def process_dataset(input_file: str, output_file: str, max_workers: int = 4):
+    """Process and translate a dataset file."""
     # Start translation tracking
     start_translation()
 
     try:
         # Initialize Ollama
-        client = init_ollama_client()
+        client = init_ollama()
 
         # Load dataset
-        with open(input_file, encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            data = load_json_file(input_file)
+        except Exception as e:
+            _LOGGER.error(f"Error loading dataset: {e}")
+            return
 
         if not data:
             _LOGGER.error("Empty dataset")
@@ -234,14 +212,10 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
         _LOGGER.info(f"Detected dataset type: {dataset_type}")
 
         # Load appropriate prompt
-        prompt_template = load_translation_prompt(dataset_type)
+        prompt_template = load_prompt(dataset_type)
 
         # Setup output files
-        output_dir = os.path.dirname(output_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-        # JSONL file for line-by-line saving (use same timestamp as output)
+        ensure_directory_exists(os.path.dirname(output_file))
         jsonl_file = output_file.replace(".json", ".jsonl")
 
         # Check for existing progress
@@ -256,7 +230,6 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
         _LOGGER.info(
             f"Processing {len(data)} examples (starting from {processed_count}) with {max_workers} workers..."
         )
-        _LOGGER.info(f"Using {max_workers} parallel workers for translation")
 
         # Prepare data for parallel processing
         remaining_data = data[processed_count:]
@@ -270,7 +243,7 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all tasks
                 future_to_index = {
-                    executor.submit(translate_single_example, args): args[4]
+                    executor.submit(translate_single, args): args[4]
                     for args in task_args
                 }
 
@@ -284,8 +257,7 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
                     result = future.result()
 
                     # Save immediately to JSONL
-                    f.write(json.dumps(result["data"], ensure_ascii=False) + "\n")
-                    f.flush()  # Ensure data is written to disk
+                    save_jsonl_line(result["data"], jsonl_file)
 
                     # Track translation result
                     add_translation_result(
@@ -299,11 +271,8 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
 
         # Convert JSONL to final JSON format
         _LOGGER.info("Converting JSONL to final JSON format...")
-        with open(jsonl_file, encoding="utf-8") as f:
-            translated_data = [json.loads(line) for line in f if line.strip()]
-
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(translated_data, f, ensure_ascii=False, indent=2)
+        translated_data = load_jsonl_file(jsonl_file)
+        save_json_file(translated_data, output_file)
 
         _LOGGER.info(f"Saved translated data to {output_file}")
         _LOGGER.info(f"Line-by-line backup saved to {jsonl_file}")
@@ -317,7 +286,7 @@ def process_dataset(input_file: str, output_file: str, max_workers: int = 4) -> 
 
 
 def main():
-    """CLI interface for translator."""
+    """Main CLI entry point."""
     load_dotenv()
 
     parser = argparse.ArgumentParser(
@@ -333,13 +302,11 @@ Examples:
     )
 
     parser.add_argument("input_file", help="Input JSON file to translate")
-
     parser.add_argument(
         "--output",
         "-o",
         help="Output JSON file (default: auto-generated from input file)",
     )
-
     parser.add_argument(
         "--workers",
         "-w",
@@ -351,7 +318,7 @@ Examples:
     args = parser.parse_args()
 
     # Validate input file
-    if not os.path.exists(args.input_file):
+    if not validate_file_exists(args.input_file):
         _LOGGER.error(f"File not found: {args.input_file}")
         return
 

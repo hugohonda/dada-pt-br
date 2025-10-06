@@ -1,5 +1,8 @@
-import json
-import os
+#!/usr/bin/env python3
+"""
+Translation report generator with comprehensive statistics.
+"""
+
 import platform
 import time
 from datetime import datetime
@@ -9,6 +12,7 @@ import ollama
 import psutil
 
 from config.logging import setup_logger
+from utils import ensure_directory_exists, format_duration, save_json_file
 
 _LOGGER = setup_logger("report_generator", log_to_file=True, log_prefix="report")
 
@@ -106,18 +110,6 @@ def get_system_info():
     except Exception as e:
         _LOGGER.warning(f"Could not get system info: {e}")
         return {"error": str(e)}
-
-
-def format_duration(seconds: float) -> str:
-    """Format duration in human-readable format."""
-    if seconds < 60:
-        return f"{seconds:.1f} seconds"
-    elif seconds < 3600:
-        minutes = seconds / 60
-        return f"{minutes:.1f} minutes"
-    else:
-        hours = seconds / 3600
-        return f"{hours:.1f} hours"
 
 
 def generate_recommendations(
@@ -303,12 +295,10 @@ def generate_translation_report(
     }
 
     # Save report to file
-    os.makedirs("reports", exist_ok=True)
+    ensure_directory_exists("reports")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_file = f"reports/translation_report_{timestamp}.json"
-
-    with open(report_file, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    save_json_file(report, report_file)
 
     # Generate human-readable summary
     summary_file = f"reports/translation_summary_{timestamp}.txt"

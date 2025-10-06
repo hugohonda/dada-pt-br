@@ -11,6 +11,13 @@ DATASETS = {
     "m_alert": "felfri/M-ALERT",
 }
 
+# Available models for download
+MODELS = {
+    "xcomet-xl": "Unbabel/XCOMET-XL",
+    "tower-instruct-mistral": "Unbabel/TowerInstruct-Mistral-7B-v0.2",
+    # Add more models as needed
+}
+
 # Category translations for AgentHarm
 AGENT_HARM_CATEGORIES = {
     "Disinformation": "Desinformação",
