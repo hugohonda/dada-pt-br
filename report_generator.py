@@ -149,14 +149,8 @@ def generate_summary_report(report: dict[str, Any], summary_file: str):
         f.write("SYSTEM INFORMATION:\n")
         sys_info = report["system_information"]
         if "error" not in sys_info:
-            f.write(
-                f"  Platform: {sys_info['platform']['system']} {sys_info['platform']['release']}\n"
-            )
-            f.write(
-                f"  CPU Cores: {sys_info['cpu']['count']} ({sys_info['cpu']['count_logical']} logical)\n"
-            )
-            f.write(f"  Memory: {sys_info['memory']['total'] // (1024**3)} GB total\n")
-            f.write(f"  Python: {sys_info['platform']['python_version']}\n")
+            f.write(f"  Platform: {sys_info.get('platform', 'Unknown')}\n")
+            f.write(f"  Python: {sys_info.get('python_version', 'Unknown')}\n")
         else:
             f.write(f"  Error getting system info: {sys_info['error']}\n")
         f.write("\n")

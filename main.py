@@ -17,7 +17,8 @@ def show_help():
     print("=" * 20)
     print("Commands:")
     print("  download <dataset|model> - Download dataset or model")
-    print("  translate <file>         - Translate dataset file")
+    print("  translate <file>         - Translate dataset file (Ollama/Gemma3)")
+    print("  translate <file> --tower - Translate dataset file (TowerInstruct-Mistral)")
     print("  evaluate <file>          - Evaluate translation quality")
     print("  list                     - List available datasets")
     print("  models                   - List available models")
@@ -28,6 +29,9 @@ def show_help():
     print("  python main.py download agent_harm_chat")
     print("  python main.py download xcomet-xl")
     print("  python main.py translate datasets/raw/agent_harm_chat_test_public.json")
+    print(
+        "  python main.py translate datasets/raw/agent_harm_chat_test_public.json --tower --limit=100"
+    )
     print("  python main.py evaluate dataset.json --limit=100")
 
 
