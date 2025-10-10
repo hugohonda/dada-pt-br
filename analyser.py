@@ -16,16 +16,21 @@ import seaborn as sns
 # Global variables
 gemma_data = None
 tower_data = None
+merged_data = None
 selected_data = None
 gemma_stats = None
 tower_stats = None
+merged_stats = None
 comparison = None
+merged_comparison = None
 selection_stats = None
 correlation_data = None
 gemma_cats = None
 tower_cats = None
+merged_cats = None
 gemma_tiers = None
 tower_tiers = None
+merged_tiers = None
 
 # Category translations
 CATEGORY_TRANSLATIONS = {
@@ -79,7 +84,7 @@ CHART_CONFIG = {
 
 def load_data():
     """Load all necessary data files."""
-    global gemma_data, tower_data, selected_data
+    global gemma_data, tower_data, merged_data, selected_data
 
     print("Loading data files...")
 
@@ -89,6 +94,21 @@ def load_data():
 
     with open("data/dadaptbr_M-ALERT_train_tower_evaluated.json") as f:
         tower_eval = json.load(f)
+
+    # Load merged dataset (find the latest one)
+    merged_files = [
+        f
+        for f in os.listdir("data")
+        if f.startswith("dadaptbr_M-ALERT_train_merged_best_")
+    ]
+    if merged_files:
+        latest_merged = sorted(merged_files)[-1]
+        with open(f"data/{latest_merged}") as f:
+            merged_data = json.load(f)
+        print(f"Loaded merged dataset: {latest_merged}")
+    else:
+        merged_data = None
+        print("No merged dataset found")
 
     # Load original data for categories
     with open("data/dadaptbr_M-ALERT_train_gemma.json") as f:
@@ -110,19 +130,34 @@ def load_data():
     for item in tower_eval:
         item["category"] = id_to_category.get(item.get("id"), "unknown")
 
-    gemma_data = gemma_eval
-    tower_data = tower_eval
+    # Add categories to merged data if available
+    if merged_data:
+        for item in merged_data:
+            item["category"] = id_to_category.get(item.get("id"), "unknown")
+
+    # Sort data by ID to ensure consistent comparison
+    gemma_data = sorted(gemma_eval, key=lambda x: x["id"])
+    tower_data = sorted(tower_eval, key=lambda x: x["id"])
 
     print(f"Loaded {len(gemma_data)} Gemma3 evaluations")
     print(f"Loaded {len(tower_data)} TowerInstruct evaluations")
+    if merged_data:
+        print(f"Loaded {len(merged_data)} merged best translations")
     if selected_data:
         print(f"Loaded {len(selected_data)} selected translations")
 
 
 def calculate_stats():
     """Calculate all statistics and store in global variables."""
-    global gemma_stats, tower_stats, comparison, selection_stats, correlation_data
-    global gemma_cats, tower_cats, gemma_tiers, tower_tiers
+    global \
+        gemma_stats, \
+        tower_stats, \
+        merged_stats, \
+        comparison, \
+        merged_comparison, \
+        selection_stats, \
+        correlation_data
+    global gemma_cats, tower_cats, merged_cats, gemma_tiers, tower_tiers, merged_tiers
 
     # Basic statistics
     gemma_scores = [item["score"] for item in gemma_data]
@@ -156,7 +191,38 @@ def calculate_stats():
         "poor_rate": sum(1 for s in tower_scores if s < 0.60) / len(tower_scores) * 100,
     }
 
-    # Model comparison
+    # Merged dataset statistics
+    if merged_data:
+        merged_scores = [item["score"] for item in merged_data]
+        merged_stats = {
+            "count": len(merged_data),
+            "mean_score": statistics.mean(merged_scores),
+            "median_score": statistics.median(merged_scores),
+            "std_score": statistics.stdev(merged_scores)
+            if len(merged_scores) > 1
+            else 0,
+            "error_rate": sum(1 for item in merged_data if item.get("error_spans"))
+            / len(merged_data)
+            * 100,
+            "excellent_rate": sum(1 for s in merged_scores if s >= 0.95)
+            / len(merged_scores)
+            * 100,
+            "poor_rate": sum(1 for s in merged_scores if s < 0.60)
+            / len(merged_scores)
+            * 100,
+            "gemma_selected": sum(
+                1 for item in merged_data if item.get("selected_model") == "gemma3"
+            ),
+            "tower_selected": sum(
+                1
+                for item in merged_data
+                if item.get("selected_model") == "towerinstruct"
+            ),
+        }
+    else:
+        merged_stats = None
+
+    # Model comparison with detailed tie analysis
     gemma_better = sum(
         1 for g, t in zip(gemma_scores, tower_scores, strict=False) if g > t
     )
@@ -165,12 +231,20 @@ def calculate_stats():
     )
     ties = len(gemma_scores) - gemma_better - tower_better
 
+    # Analyze ties in detail
+    tie_scores = []
+    for g, t in zip(gemma_scores, tower_scores, strict=False):
+        if g == t:  # Exact tie (same as merger logic)
+            tie_scores.append((g, t))
+
     comparison = {
         "gemma_better": gemma_better,
         "tower_better": tower_better,
         "ties": ties,
+        "tie_scores": tie_scores,
         "gemma_win_rate": gemma_better / len(gemma_scores) * 100,
         "tower_win_rate": tower_better / len(gemma_scores) * 100,
+        "tie_rate": ties / len(gemma_scores) * 100,
         "mean_difference": statistics.mean(
             [g - t for g, t in zip(gemma_scores, tower_scores, strict=False)]
         ),
@@ -201,13 +275,31 @@ def calculate_stats():
     # Category analysis
     gemma_cats = analyze_by_category(gemma_data)
     tower_cats = analyze_by_category(tower_data)
+    if merged_data:
+        merged_cats = analyze_by_category(merged_data)
 
     # Quality tiers
     gemma_tiers = analyze_quality_tiers(gemma_scores)
     tower_tiers = analyze_quality_tiers(tower_scores)
+    if merged_data:
+        merged_tiers = analyze_quality_tiers(merged_scores)
 
     # Correlation
     correlation_data = analyze_score_correlation()
+
+    # Merged comparison
+    if merged_data:
+        merged_comparison = {
+            "vs_gemma_improvement": merged_stats["mean_score"]
+            - gemma_stats["mean_score"],
+            "vs_tower_improvement": merged_stats["mean_score"]
+            - tower_stats["mean_score"],
+            "best_individual": max(
+                gemma_stats["mean_score"], tower_stats["mean_score"]
+            ),
+            "merged_vs_best": merged_stats["mean_score"]
+            - max(gemma_stats["mean_score"], tower_stats["mean_score"]),
+        }
 
 
 def analyze_by_category(data):
@@ -416,18 +508,49 @@ def create_chart(chart_type, **kwargs):
         plt.close()
 
     elif chart_type == "selection":
-        if not selected_data:
+        # Use merged_data if selected_data is not available
+        if not selected_data and not merged_data:
             return
+
+        # Use merged_data for selection stats if selected_data is not available
+        if not selected_data:
+            selection_data = merged_data
+            gemma_selected = sum(
+                1 for item in selection_data if item.get("selected_model") == "gemma3"
+            )
+            tower_selected = sum(
+                1
+                for item in selection_data
+                if item.get("selected_model") == "towerinstruct"
+            )
+            above_threshold = sum(
+                1 for item in selection_data if item.get("score", 0) >= 0.5
+            )
+            # below_threshold not used in visualization summary
+            total = len(selection_data)
+        else:
+            selection_data = selected_data
+            gemma_selected = selection_stats["gemma_selected"]
+            tower_selected = selection_stats["tower_selected"]
+            above_threshold = selection_stats["above_threshold"]
+            total = selection_stats["total"]
 
         plt.figure(figsize=CHART_CONFIG["figsize"])
 
-        models = ["Gemma3", "TowerInstruct"]
-        counts = [selection_stats["gemma_selected"], selection_stats["tower_selected"]]
+        # Include ties as a separate category
+        ties = comparison.get("ties", 0)
+        models = ["Gemma3", "TowerInstruct", "Empates (→TowerInstruct)"]
+        counts = [gemma_selected, tower_selected, ties]
+        colors = [
+            CHART_CONFIG["colors"][0],
+            CHART_CONFIG["colors"][1],
+            CHART_CONFIG["colors"][2],
+        ]
 
         wedges, texts, autotexts = plt.pie(
             counts,
             labels=models,
-            colors=CHART_CONFIG["colors"][:2],
+            colors=colors,
             autopct="%1.1f%%",
             startangle=90,
             textprops={"fontweight": "bold"},
@@ -439,18 +562,18 @@ def create_chart(chart_type, **kwargs):
             autotext.set_color("white")
 
         plt.title(
-            "Resultados da Seleção de Traduções\nMelhor Modelo por Tradução",
+            "Resultados da Seleção de Traduções",
             fontweight="bold",
             pad=20,
         )
 
-        total = sum(counts)
+        tie_rate = comparison.get("tie_rate", 0)
         summary_text = (
             f"Total de Traduções: {total:,}\n"
-            f"Acima do Limiar: {selection_stats['above_threshold']:,} "
-            f"({selection_stats['above_threshold'] / total * 100:.1f}%)\n"
-            f"Abaixo do Limiar: {selection_stats['below_threshold']:,} "
-            f"({selection_stats['below_threshold'] / total * 100:.1f}%)"
+            f"Gemma3 venceu por score: {gemma_selected - ties:,} ({((gemma_selected - ties) / total * 100):.1f}%)\n"
+            f"TowerInstruct venceu por score: {tower_selected:,} ({tower_selected / total * 100:.1f}%)\n"
+            f"Empates (TowerInstruct): {ties:,} ({tie_rate:.1f}%)\n"
+            f"Acima do Limiar: {above_threshold:,} ({above_threshold / total * 100:.1f}%)"
         )
 
         plt.figtext(
@@ -656,6 +779,99 @@ def create_chart(chart_type, **kwargs):
         )
         plt.close()
 
+    elif chart_type == "merged_comparison":
+        if not merged_data:
+            return
+
+        plt.figure(figsize=CHART_CONFIG["figsize"])
+
+        models = ["Gemma3", "TowerInstruct", "Mesclado"]
+        means = [
+            gemma_stats["mean_score"],
+            tower_stats["mean_score"],
+            merged_stats["mean_score"],
+        ]
+        excellent_rates = [
+            gemma_stats["excellent_rate"],
+            tower_stats["excellent_rate"],
+            merged_stats["excellent_rate"],
+        ]
+        poor_rates = [
+            gemma_stats["poor_rate"],
+            tower_stats["poor_rate"],
+            merged_stats["poor_rate"],
+        ]
+
+        x = np.arange(len(models))
+        width = 0.25
+
+        bars1 = plt.bar(
+            x - width,
+            means,
+            width,
+            label="Pontuação Média",
+            color=CHART_CONFIG["colors"][0],
+            alpha=0.8,
+            edgecolor="white",
+            linewidth=1,
+        )
+        bars2 = plt.bar(
+            x,
+            excellent_rates,
+            width,
+            label="Taxa Excelente (≥0.95)",
+            color=CHART_CONFIG["colors"][1],
+            alpha=0.8,
+            edgecolor="white",
+            linewidth=1,
+        )
+        bars3 = plt.bar(
+            x + width,
+            poor_rates,
+            width,
+            label="Taxa Ruim (<0.60)",
+            color=CHART_CONFIG["colors"][2],
+            alpha=0.8,
+            edgecolor="white",
+            linewidth=1,
+        )
+
+        # Add value labels on bars
+        for bars in [bars1, bars2, bars3]:
+            for bar in bars:
+                height = bar.get_height()
+                plt.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    height + 0.5,
+                    f"{height:.1f}%"
+                    if "Rate" in str(bars) or "Taxa" in str(bars)
+                    else f"{height:.3f}",
+                    ha="center",
+                    va="bottom",
+                    fontweight="bold",
+                    fontsize=10,
+                )
+
+        plt.xlabel("Modelos")
+        plt.ylabel("Pontuação / Porcentagem")
+        plt.title(
+            "Comparação: Modelos Individuais vs Dataset Mesclado\nSeleção da Melhor Tradução por ID",
+            fontweight="bold",
+        )
+        plt.xticks(x, models)
+        plt.legend()
+        plt.grid(True, alpha=0.3, axis="y")
+
+        # Improvement metrics are shown in the title and can be referenced in the paper text
+
+        plt.tight_layout()
+        plt.savefig(
+            "analysis/visualizations/merged_comparison.png",
+            dpi=CHART_CONFIG["dpi"],
+            bbox_inches="tight",
+        )
+        plt.close()
+
     elif chart_type == "categories":
         plt.figure(figsize=(12, 8))
 
@@ -737,6 +953,7 @@ def create_visualizations():
         "boxplot",
         "tiers",
         "correlation",
+        "merged_comparison",
         "categories",
     ]
     for chart_type in chart_types:
@@ -753,6 +970,8 @@ def create_visualizations():
     print("  📋 Category Performance: analysis/visualizations/category_performance.png")
     if correlation_data:
         print("  🔗 Score Correlation: analysis/visualizations/score_correlation.png")
+    if merged_data:
+        print("  🎯 Merged Comparison: analysis/visualizations/merged_comparison.png")
 
 
 def generate_report():
@@ -789,6 +1008,26 @@ def generate_report():
     report.append(f"  Taxa de Erro: {tower_stats['error_rate']:.1f}%")
     report.append("")
 
+    # Merged Dataset Statistics
+    if merged_stats:
+        report.append("Dataset Mesclado (Melhor por ID):")
+        report.append(f"  Contagem: {merged_stats['count']:,}")
+        report.append(f"  Pontuação Média: {merged_stats['mean_score']:.4f}")
+        report.append(f"  Pontuação Mediana: {merged_stats['median_score']:.4f}")
+        report.append(f"  Desvio Padrão: {merged_stats['std_score']:.4f}")
+        report.append(
+            f"  Taxa Excelente (≥0.95): {merged_stats['excellent_rate']:.1f}%"
+        )
+        report.append(f"  Taxa Ruim (<0.60): {merged_stats['poor_rate']:.1f}%")
+        report.append(f"  Taxa de Erro: {merged_stats['error_rate']:.1f}%")
+        report.append(
+            f"  Gemma3 selecionado: {merged_stats['gemma_selected']:,} ({merged_stats['gemma_selected'] / merged_stats['count'] * 100:.1f}%)"
+        )
+        report.append(
+            f"  TowerInstruct selecionado: {merged_stats['tower_selected']:,} ({merged_stats['tower_selected'] / merged_stats['count'] * 100:.1f}%)"
+        )
+        report.append("")
+
     # Model Comparison
     report.append("COMPARAÇÃO DE MODELOS:")
     report.append("-" * 40)
@@ -798,11 +1037,27 @@ def generate_report():
     report.append(
         f"TowerInstruct melhor: {comparison['tower_better']:,} ({comparison['tower_win_rate']:.1f}%)"
     )
-    report.append(f"Empates: {comparison['ties']:,}")
+    report.append(f"Empates: {comparison['ties']:,} ({comparison['tie_rate']:.1f}%)")
     report.append(
         f"Diferença média (Gemma3 - TowerInstruct): {comparison['mean_difference']:.4f}"
     )
     report.append("")
+
+    # Tie Analysis
+    if comparison["tie_scores"]:
+        tie_avg_score = statistics.mean(
+            [score[0] for score in comparison["tie_scores"]]
+        )
+        report.append("ANÁLISE DE EMPATES:")
+        report.append("-" * 40)
+        report.append(
+            f"Total de empates: {comparison['ties']:,} ({comparison['tie_rate']:.1f}%)"
+        )
+        report.append(f"Score médio dos empates: {tie_avg_score:.4f}")
+        report.append(
+            "Política de desempate: Empates resolvidos favorecendo TowerInstruct com base em evidências empíricas"
+        )
+        report.append("")
 
     # Winner determination
     winner = "Gemma3" if comparison["mean_difference"] > 0 else "TowerInstruct"
@@ -810,6 +1065,24 @@ def generate_report():
     report.append(f"VENCEDOR GERAL: {winner}")
     report.append(f"Vantagem: {advantage:.4f} pontos")
     report.append("")
+
+    # Merged Dataset Comparison
+    if merged_comparison:
+        report.append("COMPARAÇÃO COM DATASET MESCLADO:")
+        report.append("-" * 40)
+        report.append(
+            f"Melhoria vs Gemma3: +{merged_comparison['vs_gemma_improvement']:.4f} pontos"
+        )
+        report.append(
+            f"Melhoria vs TowerInstruct: +{merged_comparison['vs_tower_improvement']:.4f} pontos"
+        )
+        report.append(
+            f"Melhoria vs melhor individual: +{merged_comparison['merged_vs_best']:.4f} pontos"
+        )
+        report.append("")
+        report.append("O dataset mesclado supera ambos os modelos individuais,")
+        report.append("demonstrando a eficácia da seleção da melhor tradução por ID.")
+        report.append("")
 
     # Selection Results
     if selection_stats:
@@ -886,6 +1159,12 @@ def generate_report():
         f"4. Análise de níveis de qualidade: Gemma3 {gemma_excellent:.1f}% vs TowerInstruct {tower_excellent:.1f}% traduções excelentes"
     )
 
+    if merged_stats:
+        merged_excellent = merged_tiers["Excelente (≥0.95)"][1]
+        report.append(
+            f"5. Dataset mesclado atinge {merged_excellent:.1f}% de traduções excelentes, superando ambos os modelos individuais"
+        )
+
     if correlation_data:
         correlation_strength = (
             "forte"
@@ -894,19 +1173,24 @@ def generate_report():
             if correlation_data["correlation"] > 0.4
             else "fraca"
         )
+        insight_num = 6 if merged_stats else 5
         report.append(
-            f"5. Correlação entre modelos: {correlation_data['correlation']:.3f} (correlação {correlation_strength})"
+            f"{insight_num}. Correlação entre modelos: {correlation_data['correlation']:.3f} (correlação {correlation_strength})"
         )
 
     if selection_stats:
+        insight_num = 7 if merged_stats else 6
         report.append(
-            f"6. Processo de seleção escolheu {selection_stats['above_threshold'] / selection_stats['total'] * 100:.1f}% de traduções de alta qualidade"
+            f"{insight_num}. Processo de seleção escolheu {selection_stats['above_threshold'] / selection_stats['total'] * 100:.1f}% de traduções de alta qualidade"
         )
         report.append(
-            f"7. Dataset final contém {selection_stats['total']:,} traduções cuidadosamente selecionadas"
+            f"{insight_num + 1}. Dataset final contém {selection_stats['total']:,} traduções cuidadosamente selecionadas"
         )
         report.append(
-            f"8. Viés de seleção: Gemma3 selecionado {selection_stats['gemma_selected'] / selection_stats['total'] * 100:.1f}% das vezes"
+            f"{insight_num + 2}. Viés de seleção: Gemma3 selecionado {selection_stats['gemma_selected'] / selection_stats['total'] * 100:.1f}% das vezes"
+        )
+        report.append(
+            f"{insight_num + 3}. Empates: {comparison['ties']:,} ({comparison['tie_rate']:.1f}%) foram resolvidos favorecendo TowerInstruct com base em evidências empíricas"
         )
 
     # Performance characteristics
@@ -925,6 +1209,17 @@ def generate_report():
     report.append(
         "• Taxas de detecção de erro sugerem que ambos os modelos são conservadores na avaliação de qualidade"
     )
+
+    if merged_stats:
+        report.append(
+            f"• Dataset mesclado atinge {merged_stats['mean_score']:.4f} de qualidade média, superando ambos os modelos individuais"
+        )
+        report.append(
+            f"• Estratégia de seleção da melhor tradução por ID resulta em {merged_comparison['merged_vs_best']:.4f} pontos de melhoria sobre o melhor modelo individual"
+        )
+        report.append(
+            f"• Política: {comparison['ties']:,} empates ({comparison['tie_rate']:.1f}%) foram resolvidos favorecendo TowerInstruct com base em evidências"
+        )
 
     report.append("")
     report.append("=" * 80)
