@@ -537,10 +537,14 @@ def create_chart(chart_type, **kwargs):
 
         plt.figure(figsize=CHART_CONFIG["figsize"])
 
-        # Include ties as a separate category
+        # Calculate score-based wins vs ties for consistent visualization
         ties = comparison.get("ties", 0)
+        gemma_wins = comparison.get("gemma_better", 0)
+        tower_wins = comparison.get("tower_better", 0)
+
+        # For pie chart: show score-based comparison (what the text box describes)
         models = ["Gemma3", "TowerInstruct", "Empates (→TowerInstruct)"]
-        counts = [gemma_selected, tower_selected, ties]
+        counts = [gemma_wins, tower_wins, ties]
         colors = [
             CHART_CONFIG["colors"][0],
             CHART_CONFIG["colors"][1],
@@ -567,12 +571,12 @@ def create_chart(chart_type, **kwargs):
             pad=20,
         )
 
-        tie_rate = comparison.get("tie_rate", 0)
+        # Text box: show score-based analysis (now consistent with pie chart)
         summary_text = (
             f"Total de Traduções: {total:,}\n"
-            f"Gemma3 venceu por score: {gemma_selected - ties:,} ({((gemma_selected - ties) / total * 100):.1f}%)\n"
-            f"TowerInstruct venceu por score: {tower_selected:,} ({tower_selected / total * 100:.1f}%)\n"
-            f"Empates (TowerInstruct): {ties:,} ({tie_rate:.1f}%)\n"
+            f"Gemma3 venceu por score: {gemma_wins:,} ({gemma_wins / total * 100:.1f}%)\n"
+            f"TowerInstruct venceu por score: {tower_wins:,} ({tower_wins / total * 100:.1f}%)\n"
+            f"Empates (TowerInstruct): {ties:,} ({ties / total * 100:.1f}%)\n"
             f"Acima do Limiar: {above_threshold:,} ({above_threshold / total * 100:.1f}%)"
         )
 
@@ -873,7 +877,7 @@ def create_chart(chart_type, **kwargs):
         plt.close()
 
     elif chart_type == "categories":
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=(14, 10))
 
         all_categories = set(gemma_cats.keys()) | set(tower_cats.keys())
         category_counts = [
@@ -890,23 +894,23 @@ def create_chart(chart_type, **kwargs):
         gemma_means = [gemma_cats[cat]["mean_score"] for cat in categories]
         tower_means = [tower_cats[cat]["mean_score"] for cat in categories]
 
-        x = np.arange(len(categories))
-        width = 0.35
+        y = np.arange(len(categories))
+        height = 0.35
 
-        bars1 = plt.bar(
-            x - width / 2,
+        bars1 = plt.barh(
+            y - height / 2,
             gemma_means,
-            width,
+            height,
             label="Gemma3",
             color=CHART_CONFIG["colors"][0],
             alpha=0.8,
             edgecolor="white",
             linewidth=1,
         )
-        bars2 = plt.bar(
-            x + width / 2,
+        bars2 = plt.barh(
+            y + height / 2,
             tower_means,
-            width,
+            height,
             label="TowerInstruct",
             color=CHART_CONFIG["colors"][1],
             alpha=0.8,
@@ -916,22 +920,21 @@ def create_chart(chart_type, **kwargs):
 
         # No text labels on bars for cleaner look
 
-        plt.xlabel("Categorias")
-        plt.ylabel("Pontuação Média")
+        plt.ylabel("Categorias")
+        plt.xlabel("Pontuação Média")
         plt.title(
             "Performance por Categoria\nTop 15 Categorias por Volume",
             fontweight="bold",
         )
-        plt.xticks(
-            x,
+        plt.yticks(
+            y,
             [CATEGORY_TRANSLATIONS.get(cat, cat) for cat in categories],
-            rotation=45,
-            ha="right",
         )
-        plt.legend()
-        plt.grid(True, alpha=0.3, axis="y")
-        plt.ylim(0, 1.0)  # Normal y-axis range
+        plt.legend(loc="center left", bbox_to_anchor=(1.05, 0.5))
+        plt.grid(True, alpha=0.3, axis="x")
+        plt.xlim(0, 1.0)  # Normal x-axis range
 
+        plt.subplots_adjust(right=0.85)
         plt.tight_layout()
         plt.savefig(
             "analysis/visualizations/category_performance.png",
