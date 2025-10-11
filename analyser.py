@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """
-Unified M-ALERT Translation Analysis
-Simple, direct, and functional analysis combining all necessary data.
+Translation Analysis
 """
 
-import json
 import os
 import statistics
 from collections import defaultdict
@@ -12,6 +10,8 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+
+from utils import generate_visualization_path, load_json_file
 
 # Global variables
 gemma_data = None
@@ -89,11 +89,8 @@ def load_data():
     print("Loading data files...")
 
     # Load evaluation data
-    with open("data/dadaptbr_M-ALERT_train_gemma_evaluated.json") as f:
-        gemma_eval = json.load(f)
-
-    with open("data/dadaptbr_M-ALERT_train_tower_evaluated.json") as f:
-        tower_eval = json.load(f)
+    gemma_eval = load_json_file("data/dadaptbr_M-ALERT_train_gemma_evaluated.json")
+    tower_eval = load_json_file("data/dadaptbr_M-ALERT_train_tower_evaluated.json")
 
     # Load merged dataset (find the latest one)
     merged_files = [
@@ -103,23 +100,20 @@ def load_data():
     ]
     if merged_files:
         latest_merged = sorted(merged_files)[-1]
-        with open(f"data/{latest_merged}") as f:
-            merged_data = json.load(f)
+        merged_data = load_json_file(f"data/{latest_merged}")
         print(f"Loaded merged dataset: {latest_merged}")
     else:
         merged_data = None
         print("No merged dataset found")
 
     # Load original data for categories
-    with open("data/dadaptbr_M-ALERT_train_gemma.json") as f:
-        gemma_orig = json.load(f)
+    gemma_orig = load_json_file("data/dadaptbr_M-ALERT_train_gemma.json")
 
     # Load selected translations if available
     selected_file = "data/dadaptbr_M-ALERT_train_selected_20251008_123504.json"
     selected_data = None
     if os.path.exists(selected_file):
-        with open(selected_file) as f:
-            selected_data = json.load(f)
+        selected_data = load_json_file(selected_file)
 
     # Add categories to evaluation data
     id_to_category = {
@@ -356,7 +350,7 @@ def analyze_score_correlation():
     }
 
 
-def create_chart(chart_type, **kwargs):
+def create_chart(chart_type, dataset_id="m_alert", **kwargs):
     """Generic chart creation function."""
     sns.set_style(CHART_CONFIG["style"])
     plt.rcParams.update(
@@ -423,7 +417,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/score_distribution.png",
+            generate_visualization_path(dataset_id, "score_distribution"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -501,7 +495,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/performance_comparison.png",
+            generate_visualization_path(dataset_id, "performance_comparison"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -597,7 +591,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/selection_results.png",
+            generate_visualization_path(dataset_id, "selection_results"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -654,7 +648,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/quality_boxplot.png",
+            generate_visualization_path(dataset_id, "quality_boxplot"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -715,7 +709,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/quality_tiers.png",
+            generate_visualization_path(dataset_id, "quality_tiers"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -777,7 +771,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/score_correlation.png",
+            generate_visualization_path(dataset_id, "score_correlation"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -870,7 +864,7 @@ def create_chart(chart_type, **kwargs):
 
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/merged_comparison.png",
+            generate_visualization_path(dataset_id, "merged_comparison"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -937,7 +931,7 @@ def create_chart(chart_type, **kwargs):
         plt.subplots_adjust(right=0.85)
         plt.tight_layout()
         plt.savefig(
-            "analysis/visualizations/category_performance.png",
+            generate_visualization_path(dataset_id, "category_performance"),
             dpi=CHART_CONFIG["dpi"],
             bbox_inches="tight",
         )
@@ -947,7 +941,8 @@ def create_chart(chart_type, **kwargs):
 def create_visualizations():
     """Create all visualizations."""
     print("Creating visualizations...")
-    os.makedirs("analysis/visualizations", exist_ok=True)
+    # Use dataset ID from loaded data
+    dataset_id = "m_alert"  # Default for current data
 
     chart_types = [
         "histogram",
@@ -960,7 +955,7 @@ def create_visualizations():
         "categories",
     ]
     for chart_type in chart_types:
-        create_chart(chart_type)
+        create_chart(chart_type, dataset_id=dataset_id)
 
     print("Visualizations saved to:")
     print("  📊 Score Distribution: analysis/visualizations/score_distribution.png")
@@ -980,7 +975,7 @@ def create_visualizations():
 def generate_report():
     """Generate comprehensive analysis report."""
     print("Generating comprehensive report...")
-    os.makedirs("analysis/reports", exist_ok=True)
+    dataset_id = "m_alert"  # Default for current data
 
     report = []
     report.append("=" * 80)
@@ -1231,12 +1226,13 @@ def generate_report():
 
     # Save report
     report_text = "\n".join(report)
-    with open(
-        "analysis/reports/unified_analysis_report.txt", "w", encoding="utf-8"
-    ) as f:
+    from utils import generate_report_filename
+
+    report_file = generate_report_filename(dataset_id, "analysis", extension="txt")
+    with open(report_file, "w", encoding="utf-8") as f:
         f.write(report_text)
 
-    print("Report saved to: analysis/reports/unified_analysis_report.txt")
+    print(f"Report saved to: {report_file}")
 
 
 def print_summary():
@@ -1245,7 +1241,11 @@ def print_summary():
     print("ANÁLISE CONCLUÍDA")
     print("=" * 60)
     print("Arquivos gerados:")
-    print("📊 Relatório: analysis/reports/unified_analysis_report.txt")
+    dataset_id = "m_alert"  # Default for current data
+    from utils import generate_report_filename
+
+    report_file = generate_report_filename(dataset_id, "analysis", extension="txt")
+    print(f"📊 Relatório: {report_file}")
     print("📈 Visualizações:")
     print(
         "  • Distribuição de Pontuações: analysis/visualizations/score_distribution.png"

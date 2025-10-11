@@ -6,6 +6,13 @@ logs
 reports
 models
 
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

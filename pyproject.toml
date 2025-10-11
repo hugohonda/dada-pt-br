@@ -12,6 +12,9 @@ dependencies = [
     "unbabel-comet>=2.2.7",
 ]
 
+[project.scripts]
+dada = "main:main"
+
 # Black configuration
 [tool.black]
 line-length = 88

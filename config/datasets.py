@@ -18,6 +18,27 @@ MODELS = {
     # Add more models as needed
 }
 
+# LLM models configuration
+LLM_MODELS = {
+    "gemma3": {
+        "ollama_name": "gemma3:latest",
+        "display_name": "Gemma3",
+        "default": True,
+    },
+    "towerinstruct": {
+        "ollama_name": "tibellium/towerinstruct-mistral:7b",
+        "display_name": "TowerInstruct-Mistral",
+        "default": False,
+    },
+}
+
+# Default LLM generation parameters
+LLM_DEFAULT_PARAMS = {
+    "temperature": 0.1,
+    "top_p": 0.9,
+    "max_tokens": 2048,
+}
+
 # Category translations for AgentHarm
 AGENT_HARM_CATEGORIES = {
     "Disinformation": "Desinformação",

@@ -21,8 +21,8 @@ ollama pull gemma3:latest
 ## Usage
 
 ```bash
-# Main CLI interface
-uv run main.py <command> [options]
+# Main CLI interface (recommended)
+uv run dada <command> [options]
 
 # Direct script usage
 uv run python <script.py> [options]
@@ -34,35 +34,35 @@ uv run python <script.py> [options]
 
 ```bash
 # Download datasets or models
-uv run main.py download <dataset_name|model_name>
+uv run dada download <dataset_name|model_name>
 
 # Translate datasets
-uv run main.py translate <input_file> [--output=file] [--workers=N]
+uv run dada translate <input_file> [--output=file] [--workers=N]
 
 # Evaluate translation quality
-uv run main.py evaluate <input_file> [--output=file] [--limit=N]
+uv run dada evaluate <input_file> [--output=file] [--limit=N]
 
 # List available datasets
-uv run main.py list
+uv run dada list
 
 # List available models
-uv run main.py models
+uv run dada models
 
 # List downloaded files
-uv run main.py files
+uv run dada files
 
 # Show help
-uv run main.py help
+uv run dada --help
 ```
 
 ### Direct Script Usage
 
 ```bash
 # Downloader (datasets and models)
-uv run python downloader.py <dataset_name|model_name>
+uv run python downloader.py <dataset_name|model_name> [--list-datasets] [--list-models]
 
 # Translator
-uv run python translator.py <input_file> [--output=file] [--workers=N]
+uv run python translator.py <input_file> [--output=file] [--workers=N] [--tower] [--limit=N]
 
 # Evaluator
 uv run python evaluator.py <input_file> [--output=file] [--limit=N]
@@ -85,23 +85,27 @@ uv run python evaluator.py <input_file> [--output=file] [--limit=N]
 ## Project Structure
 
 ```
-dadaptbr/
+dada-pt-br/
 ├── config/
-│   ├── datasets.py          # Dataset configurations
+│   ├── datasets.py          # Dataset and model configurations
 │   └── logging.py           # Logging setup
-├── datasets/
-│   ├── raw/                 # Downloaded datasets
-│   ├── processed/           # Translated datasets
-│   └── evaluation/          # Translation quality evaluation
-├── models/                  # Downloaded models cache
-├── logs/                    # System logs
-├── reports/                 # Analysis reports
+├── data/
+│   ├── translated/          # Translated datasets by model
+│   ├── evaluated/           # Quality evaluation results
+│   └── merged/              # Best translation selections
+├── outputs/
+│   ├── visualizations/      # Analysis charts and plots
+│   ├── reports/             # Analysis and translation reports
+│   └── logs/                # System logs
 ├── prompts/                 # Translation prompts
 ├── utils.py                 # Common utilities
+├── llm_client.py            # LLM/Ollama client wrapper
 ├── main.py                  # Main CLI interface
 ├── downloader.py            # Dataset downloader
 ├── translator.py            # Dataset translator
 ├── evaluator.py             # Translation quality evaluator
+├── analyser.py              # Analysis and visualization
+├── merger.py                # Best translation merger
 ├── report_generator.py      # Translation reporting system
 └── pyproject.toml           # Dependencies
 ```
@@ -110,34 +114,36 @@ dadaptbr/
 
 ```bash
 # 1. Download dataset
-uv run main.py download m_alert
+uv run dada download m_alert
 
 # 2. Download models (optional - will auto-download if needed)
-uv run main.py download xcomet-xl
+uv run dada download xcomet-xl
 
 # 3. Translate dataset
-uv run main.py translate datasets/raw/m_alert_train.json --workers=4
+uv run dada translate data/m_alert_train.json --workers=4 --tower
 
 # 4. Evaluate translation quality
-uv run main.py evaluate datasets/processed/m_alert_train_translated_20251006_123456.json
+uv run dada evaluate data/translated/m_alert/towerinstruct/m_alert_train_translated_20251006_123456.json
 
 # 5. Check results
-uv run main.py files
+uv run dada files
 ```
 
 ## Output Files
 
 ### Translation
-- `datasets/processed/dataset_translated_YYYYMMDD_HHMMSS.json` - Translated dataset
-- `datasets/processed/dataset_translated_YYYYMMDD_HHMMSS.jsonl` - Line-by-line backup
-- `reports/translation_report_YYYYMMDD_HHMMSS.json` - Translation report
-- `logs/translation_YYYYMMDD_HHMMSS.log` - Translation logs
+- `data/translated/dataset/model/dataset_translated_YYYYMMDD_HHMMSS.json` - Translated dataset
+- `outputs/reports/dataset/translation/model/dataset_translation_YYYYMMDD_HHMMSS.json` - Translation report
+- `outputs/logs/translation/dataset_translation_YYYYMMDD_HHMMSS.log` - Translation logs
 
 ### Evaluation
-- `datasets/evaluation/dataset_evaluated_YYYYMMDD_HHMMSS.json` - Evaluated data
-- `datasets/evaluation/dataset_evaluated_YYYYMMDD_HHMMSS.jsonl` - Line-by-line backup
-- `reports/dataset_evaluation_report_YYYYMMDD_HHMMSS.json` - Evaluation report
-- `logs/evaluation_YYYYMMDD_HHMMSS.log` - Evaluation logs
+- `data/evaluated/dataset/model/dataset_evaluated_YYYYMMDD_HHMMSS.json` - Evaluated data
+- `outputs/reports/dataset/evaluation/dataset_evaluation_YYYYMMDD_HHMMSS.json` - Evaluation report
+- `outputs/logs/evaluation/dataset_evaluation_YYYYMMDD_HHMMSS.log` - Evaluation logs
+
+### Analysis
+- `outputs/visualizations/dataset/chart_name.png` - Analysis charts
+- `outputs/reports/dataset/analysis/dataset_analysis_YYYYMMDD_HHMMSS.txt` - Analysis report
 
 ## Configuration
 
@@ -149,6 +155,21 @@ Edit `config/datasets.py`:
 DATASETS = {
     "your_dataset": "org/your-dataset:split",
     # Add more datasets here
+}
+```
+
+### Adding New LLM Models
+
+Edit `config/datasets.py`:
+
+```python
+LLM_MODELS = {
+    "your_model": {
+        "ollama_name": "your/model:tag",
+        "display_name": "Your Model",
+        "default": False,
+    },
+    # Add more models here
 }
 ```
 

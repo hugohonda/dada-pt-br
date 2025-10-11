@@ -3,15 +3,15 @@
 Dataset downloader for Hugging Face datasets.
 """
 
+import argparse
 import os
-import sys
 
+from datasets import load_dataset
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 
 from config.datasets import DATASETS, MODELS
 from config.logging import setup_logger
-from datasets import load_dataset
 from utils import ensure_directory_exists, save_json_file
 
 _LOGGER = setup_logger("downloader", log_to_file=True, log_prefix="download")
@@ -78,23 +78,49 @@ def main():
     """Main CLI entry point."""
     load_dotenv()
 
-    if len(sys.argv) < 2:
-        print("Usage: python downloader.py <dataset_name|model_name>")
-        print("\nAvailable datasets:")
+    parser = argparse.ArgumentParser(
+        description="Download a dataset or model",
+        epilog="Examples:\n  python downloader.py agent_harm_chat\n  python downloader.py xcomet-xl",
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="Dataset or model name (see available lists)",
+    )
+    parser.add_argument(
+        "--list-datasets",
+        action="store_true",
+        help="List available datasets and exit",
+    )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List available models and exit",
+    )
+
+    args = parser.parse_args()
+
+    if args.list_datasets:
+        print("Available datasets:")
         for name, url in DATASETS.items():
             print(f"  {name}: {url}")
-        print("\nAvailable models:")
+        return
+
+    if args.list_models:
+        print("Available models:")
         for name, repo in MODELS.items():
             print(f"  {name}: {repo}")
         return
 
-    target_name = sys.argv[1]
+    if not args.target:
+        parser.print_help()
+        return
 
-    # Check if it's a dataset
+    target_name = args.target
+
     if target_name in DATASETS:
         dataset_url = DATASETS[target_name]
         download_dataset(dataset_url)
-    # Check if it's a model
     elif target_name in MODELS:
         download_model(target_name)
     else:

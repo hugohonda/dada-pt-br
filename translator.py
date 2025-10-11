@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dataset translator using Ollama with Gemma3 and TowerInstruct-Mistral-7B-v0.2.
+Dataset translator.
 """
 
 import argparse
@@ -8,11 +8,11 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import ollama
 from dotenv import load_dotenv
 from tqdm import tqdm
 
 from config.logging import setup_logger
+from llm_client import get_ollama_name, init_ollama, translate_text
 from report_generator import (
     add_translation_result,
     end_translation,
@@ -23,6 +23,7 @@ from utils import (
     detect_dataset_type,
     ensure_directory_exists,
     generate_output_filename,
+    get_dataset_id,
     load_json_file,
     load_jsonl_file,
     save_json_file,
@@ -38,46 +39,6 @@ def load_prompt(prompt_type: str) -> str:
     prompt_file = f"prompts/translation_{prompt_type}.md"
     with open(prompt_file, encoding="utf-8") as f:
         return f.read().strip()
-
-
-def init_ollama(model_name: str):
-    """Initialize Ollama client for specified model."""
-    client = ollama.Client()
-    _LOGGER.info("Connected to Ollama")
-
-    models = client.list()
-    if hasattr(models, "models") and models.models:
-        model_names = [model.model for model in models.models]
-        if model_name not in model_names:
-            raise Exception(f"{model_name} model not found")
-        _LOGGER.info(f"{model_name} model found")
-    else:
-        raise Exception("No models found")
-
-    return client
-
-
-def translate_text(text: str, client, model_name: str, prompt: str) -> str:
-    """Translate text using specified model."""
-    try:
-        response = client.chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1, "top_p": 0.9, "max_tokens": 2048},
-        )
-
-        translation = response["message"]["content"].strip()
-
-        # Clean up the response
-        if '"""' in translation:
-            parts = translation.split('"""')
-            if len(parts) >= 2:
-                translation = parts[-2].strip()
-
-        return translation
-    except Exception as e:
-        _LOGGER.error(f"Error translating text: {e}")
-        return text
 
 
 def translate_single(args):
@@ -173,7 +134,8 @@ def process_dataset(
             _LOGGER.info(f"Limited to {limit} examples")
 
         dataset_type = detect_dataset_type(data[0])
-        _LOGGER.info(f"Dataset type: {dataset_type}")
+        dataset_id = get_dataset_id(input_file)
+        _LOGGER.info(f"Dataset type: {dataset_type}, Dataset ID: {dataset_id}")
 
         prompt_template = load_prompt(dataset_type)
         ensure_directory_exists(os.path.dirname(output_file))
@@ -236,7 +198,9 @@ def process_dataset(
 
     finally:
         end_translation()
-        report_file = generate_translation_report(input_file, output_file, dataset_type)
+        report_file = generate_translation_report(
+            input_file, output_file, dataset_type, model_name
+        )
         if report_file:
             _LOGGER.info(f"Report: {report_file}")
 
@@ -269,7 +233,7 @@ def main():
         return
 
     output_file = args.output or generate_output_filename(args.input_file)
-    model_name = "tibellium/towerinstruct-mistral:7b" if args.tower else "gemma3:latest"
+    model_name = get_ollama_name("towerinstruct" if args.tower else "gemma3")
 
     _LOGGER.info(f"Processing: {args.input_file} -> {output_file}")
     _LOGGER.info(

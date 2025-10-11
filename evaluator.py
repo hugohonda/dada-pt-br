@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Translation quality evaluator using XCOMET-XL.
+Translation quality evaluator / scorer.
 """
 
 import argparse
@@ -17,6 +17,8 @@ from utils import (
     ensure_directory_exists,
     extract_texts,
     generate_evaluation_filename,
+    generate_report_filename,
+    get_dataset_id,
     get_timestamp,
     load_json_file,
     save_json_file,
@@ -188,12 +190,12 @@ def process_dataset(input_file, output_file, limit=None):
     save_json_file(results, output_file)
 
     # Generate concise evaluation report
-    timestamp = get_timestamp()
-    report_file = f"reports/evaluation_report_{timestamp}.json"
-    summary_file = f"reports/evaluation_summary_{timestamp}.txt"
-    ensure_directory_exists("reports")
+    dataset_id = get_dataset_id(input_file)
+    report_file = generate_report_filename(dataset_id, "evaluation", extension="json")
+    summary_file = generate_report_filename(dataset_id, "evaluation", extension="txt")
 
     # Create concise report
+    timestamp = get_timestamp()
     report = {
         "evaluation_summary": {
             "timestamp": timestamp,

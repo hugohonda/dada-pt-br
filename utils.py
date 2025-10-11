@@ -1,5 +1,5 @@
 """
-Common utility functions used across all scripts in the dadaptbr project.
+Common utility functions
 """
 
 import json
@@ -84,20 +84,97 @@ def extract_texts(example: dict[str, Any], dataset_type: str) -> tuple[str, str]
         )
 
 
-def generate_output_filename(input_file: str, output_type: str = "translated") -> str:
-    """Generate output filename with timestamp pattern."""
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
-    timestamp = get_timestamp()
-    output_dir = (
-        "datasets/processed" if output_type == "translated" else "datasets/evaluation"
+def get_dataset_id(input_file: str) -> str:
+    """Extract dataset ID from input filename."""
+    filename = os.path.basename(input_file)
+    # Remove common prefixes and suffixes
+    dataset_id = (
+        filename.replace("dadaptbr_", "").replace("_train", "").replace("_test", "")
     )
+    dataset_id = dataset_id.split("_")[0]  # Get first part before underscore
+    return dataset_id
+
+
+def get_model_key_from_name(model_name: str) -> str:
+    """Convert model name to config key."""
+    if "gemma3" in model_name:
+        return "gemma3"
+    elif "towerinstruct" in model_name:
+        return "towerinstruct"
+    else:
+        return "unknown"
+
+
+def generate_output_filename(
+    input_file: str, output_type: str = "translated", model_name: str = None
+) -> str:
+    """Generate output filename with improved organization."""
+    dataset_id = get_dataset_id(input_file)
+    timestamp = get_timestamp()
+
+    if model_name:
+        model_key = get_model_key_from_name(model_name)
+        output_dir = f"data/{output_type}/{dataset_id}/{model_key}"
+    else:
+        output_dir = f"data/{output_type}/{dataset_id}"
+
     ensure_directory_exists(output_dir)
-    return os.path.join(output_dir, f"{base_name}_{output_type}_{timestamp}.json")
+
+    base_name = os.path.splitext(os.path.basename(input_file))[0]
+    if model_name:
+        filename = f"{model_key}_{base_name}_{output_type}_{timestamp}.json"
+    else:
+        filename = f"{base_name}_{output_type}_{timestamp}.json"
+
+    return os.path.join(output_dir, filename)
 
 
-def generate_evaluation_filename(input_file: str) -> str:
+def generate_evaluation_filename(input_file: str, model_name: str = None) -> str:
     """Generate evaluation output filename."""
-    return generate_output_filename(input_file, "evaluated")
+    return generate_output_filename(input_file, "evaluated", model_name)
+
+
+def generate_report_filename(
+    dataset_id: str, operation: str, model_name: str = None, extension: str = "json"
+) -> str:
+    """Generate report filename with organized structure."""
+    timestamp = get_timestamp()
+
+    if model_name:
+        model_key = get_model_key_from_name(model_name)
+        report_dir = f"outputs/reports/{dataset_id}/{operation}"
+        filename = f"{model_key}_{dataset_id}_{operation}_{timestamp}.{extension}"
+    else:
+        report_dir = f"outputs/reports/{dataset_id}/{operation}"
+        filename = f"{dataset_id}_{operation}_{timestamp}.{extension}"
+
+    ensure_directory_exists(report_dir)
+    return os.path.join(report_dir, filename)
+
+
+def generate_log_filename(
+    dataset_id: str, operation: str, model_name: str = None
+) -> str:
+    """Generate log filename with organized structure."""
+    timestamp = get_timestamp()
+
+    if model_name:
+        model_key = get_model_key_from_name(model_name)
+        log_dir = f"outputs/logs/{operation}"
+        filename = f"{model_key}_{dataset_id}_{operation}_{timestamp}.log"
+    else:
+        log_dir = f"outputs/logs/{operation}"
+        filename = f"{dataset_id}_{operation}_{timestamp}.log"
+
+    ensure_directory_exists(log_dir)
+    return os.path.join(log_dir, filename)
+
+
+def generate_visualization_path(dataset_id: str, visualization_name: str) -> str:
+    """Generate visualization file path."""
+    viz_dir = f"outputs/visualizations/{dataset_id}"
+    ensure_directory_exists(viz_dir)
+    return os.path.join(viz_dir, f"{visualization_name}.png")
 
 
 def validate_file_exists(file_path: str) -> bool:

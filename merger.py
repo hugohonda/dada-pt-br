@@ -1,26 +1,18 @@
 #!/usr/bin/env python3
 """
-Simple dataset merger that selects the best translation for each ID
-based on XCOMET scores from Gemma3 and TowerInstruct evaluations.
+Dataset merger that selects the best translation based on scores from evaluations.
 """
 
-import json
-from datetime import datetime
+from utils import ensure_directory_exists, get_timestamp, load_json_file, save_json_file
 
 
 def load_evaluated_data():
     """Load both evaluated datasets and original data for categories."""
     print("Loading evaluated datasets...")
 
-    with open("data/dadaptbr_M-ALERT_train_gemma_evaluated.json") as f:
-        gemma_data = json.load(f)
-
-    with open("data/dadaptbr_M-ALERT_train_tower_evaluated.json") as f:
-        tower_data = json.load(f)
-
-    # Load original data to get category information
-    with open("data/dadaptbr_M-ALERT_train_gemma.json") as f:
-        original_data = json.load(f)
+    gemma_data = load_json_file("data/dadaptbr_M-ALERT_train_gemma_evaluated.json")
+    tower_data = load_json_file("data/dadaptbr_M-ALERT_train_tower_evaluated.json")
+    original_data = load_json_file("data/dadaptbr_M-ALERT_train_gemma.json")
 
     print(f"Loaded {len(gemma_data)} Gemma3 evaluations")
     print(f"Loaded {len(tower_data)} TowerInstruct evaluations")
@@ -124,11 +116,11 @@ def merge_best_translations(gemma_data, tower_data, original_data):
 
 def save_merged_dataset(merged_data):
     """Save the merged dataset with timestamp."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = get_timestamp()
     filename = f"data/dadaptbr_M-ALERT_train_merged_best_{timestamp}.json"
 
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(merged_data, f, ensure_ascii=False, indent=2)
+    ensure_directory_exists("data")
+    save_json_file(merged_data, filename)
 
     print(f"Merged dataset saved to: {filename}")
     return filename

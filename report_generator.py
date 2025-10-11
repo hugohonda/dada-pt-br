@@ -8,11 +8,16 @@ import time
 from datetime import datetime
 from typing import Any
 
-import ollama
 import psutil
 
 from config.logging import setup_logger
-from utils import ensure_directory_exists, format_duration, save_json_file
+from llm_client import get_model_info
+from utils import (
+    format_duration,
+    generate_report_filename,
+    get_dataset_id,
+    save_json_file,
+)
 
 _LOGGER = setup_logger("report_generator", log_to_file=True, log_prefix="report")
 
@@ -51,31 +56,6 @@ def add_translation_result(success: bool, processing_time: float, error: str = N
         _translation_stats["failed_translations"] += 1
         if error:
             _translation_stats["errors"].append(error)
-
-
-def get_model_info():
-    """Get information about the Ollama model being used."""
-    try:
-        client = ollama.Client()
-        models = client.list()
-
-        # Find gemma3:latest model
-        for model in models.models:
-            if model.model == "gemma3:latest":
-                return {
-                    "name": model.model,
-                    "size": getattr(model, "size", "Unknown"),
-                    "modified_at": str(getattr(model, "modified_at", "Unknown")),
-                    "digest": getattr(model, "digest", "Unknown")[:12] + "..."
-                    if hasattr(model, "digest")
-                    else "Unknown",
-                }
-
-        return {"name": "gemma3:latest", "status": "Model not found in Ollama list"}
-
-    except Exception as e:
-        _LOGGER.warning(f"Could not get model info: {e}")
-        return {"name": "gemma3:latest", "error": str(e)}
 
 
 def get_system_info():
@@ -189,7 +169,10 @@ def generate_summary_report(report: dict[str, Any], summary_file: str):
 
 
 def generate_translation_report(
-    input_file: str, output_file: str, dataset_type: str
+    input_file: str,
+    output_file: str,
+    dataset_type: str,
+    model_name: str = "gemma3:latest",
 ) -> str:
     """Generate a comprehensive translation report."""
     if not _translation_stats["start_time"] or not _translation_stats["end_time"]:
@@ -234,7 +217,7 @@ def generate_translation_report(
                 _translation_stats["total_examples"] / (total_time / 60), 2
             ),
         },
-        "model_information": get_model_info(),
+        "model_information": get_model_info(model_name),
         "system_information": get_system_info(),
         "performance_metrics": {
             "current_cpu_percent": current_cpu,
@@ -268,13 +251,16 @@ def generate_translation_report(
     }
 
     # Save report to file
-    ensure_directory_exists("reports")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_file = f"reports/translation_report_{timestamp}.json"
+    dataset_id = get_dataset_id(input_file)
+    report_file = generate_report_filename(
+        dataset_id, "translation", model_name, "json"
+    )
     save_json_file(report, report_file)
 
     # Generate human-readable summary
-    summary_file = f"reports/translation_summary_{timestamp}.txt"
+    summary_file = generate_report_filename(
+        dataset_id, "translation", model_name, "txt"
+    )
     generate_summary_report(report, summary_file)
 
     _LOGGER.info(f"Translation report saved to: {report_file}")

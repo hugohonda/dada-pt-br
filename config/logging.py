@@ -9,6 +9,8 @@ def setup_logger(
     log_to_file: bool = True,
     log_prefix: str = "translation",
     custom_timestamp: str = None,
+    dataset_id: str = None,
+    operation: str = None,
 ) -> logging.Logger:
     """
     Set up a comprehensive logger with file and console output.
@@ -35,12 +37,19 @@ def setup_logger(
 
     # File handler (if enabled)
     if log_to_file:
-        os.makedirs("logs", exist_ok=True)
-        if custom_timestamp is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if dataset_id and operation:
+            # Use organized structure
+            from utils import generate_log_filename
+
+            log_file = generate_log_filename(dataset_id, operation)
         else:
-            timestamp = custom_timestamp
-        log_file = f"logs/{log_prefix}_{timestamp}.log"
+            # Fallback to old structure
+            os.makedirs("logs", exist_ok=True)
+            if custom_timestamp is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            else:
+                timestamp = custom_timestamp
+            log_file = f"logs/{log_prefix}_{timestamp}.log"
 
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
