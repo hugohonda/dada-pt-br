@@ -11,8 +11,12 @@ This project provides a complete pipeline for downloading, translating, and eval
 ## Installation
 
 ```bash
-# Install dependencies
-uv sync
+# Clone the repository
+git clone <repository-url>
+cd dada-pt-br
+
+# Install the package in development mode
+uv pip install -e .
 
 # Install Ollama and pull model
 ollama pull gemma3:latest
@@ -20,12 +24,14 @@ ollama pull gemma3:latest
 
 ## Usage
 
-```bash
-# Main CLI interface (recommended)
-uv run dada <command> [options]
+After installation, you can use the `dada` command directly:
 
-# Direct script usage
-uv run python <script.py> [options]
+```bash
+# Main CLI interface
+dada <command> [options]
+
+# Or with uv run (if not in PATH)
+uv run dada <command> [options]
 ```
 
 ## Commands
@@ -33,26 +39,29 @@ uv run python <script.py> [options]
 ### Main CLI
 
 ```bash
-# Download datasets or models
-uv run dada download <dataset_name|model_name>
+# Download datasets or models from config
+dada download <dataset_name|model_name>
 
 # Translate datasets
-uv run dada translate <input_file> [--output=file] [--workers=N]
+dada translate <input_file> [--output=file] [--workers=N] [--limit=N] [--model=model_name]
 
 # Evaluate translation quality
-uv run dada evaluate <input_file> [--output=file] [--limit=N]
+dada evaluate <input_file> [--output=file] [--limit=N]
 
 # List available datasets
-uv run dada list
+dada list
 
 # List available models
-uv run dada models
+dada models
+
+# Show available translation models
+dada translate --help
 
 # List downloaded files
-uv run dada files
+dada files
 
 # Show help
-uv run dada --help
+dada --help
 ```
 
 ### Direct Script Usage
@@ -123,7 +132,7 @@ uv run dada download xcomet-xl
 uv run dada translate data/m_alert_train.json --workers=4 --tower
 
 # 4. Evaluate translation quality
-uv run dada evaluate data/translated/m_alert/towerinstruct/m_alert_train_translated_20251006_123456.json
+uv run dada evaluate data/translated/m_alert/towerinstruct/m_alert_train_20251006_123456.json
 
 # 5. Check results
 uv run dada files
@@ -132,7 +141,7 @@ uv run dada files
 ## Output Files
 
 ### Translation
-- `data/translated/dataset/model/dataset_translated_YYYYMMDD_HHMMSS.json` - Translated dataset
+- `data/translated/dataset/model/dataset_YYYYMMDD_HHMMSS.json` - Translated dataset
 - `outputs/reports/dataset/translation/model/dataset_translation_YYYYMMDD_HHMMSS.json` - Translation report
 - `outputs/logs/translation/dataset_translation_YYYYMMDD_HHMMSS.log` - Translation logs
 

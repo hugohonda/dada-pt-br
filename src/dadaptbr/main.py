@@ -8,8 +8,8 @@ import os
 
 from dotenv import load_dotenv
 
-from config.datasets import DATASETS, MODELS
-from llm_client import get_ollama_name
+from .config.datasets import DATASETS, MODELS
+from .llm_client import get_ollama_name
 
 
 def list_datasets():
@@ -60,7 +60,7 @@ def list_files():
 
 def handle_download(args):
     # Lazy import to avoid heavy deps when not needed
-    from downloader import download_dataset, download_model
+    from .downloader import download_dataset, download_model
 
     target = args.target
     if target in DATASETS:
@@ -76,12 +76,17 @@ def handle_download(args):
 
 def handle_translate(args):
     # Lazy import to avoid heavy deps when not needed
-    from translator import process_dataset as translate_process
+    from .translator import process_dataset as translate_process
+    from .utils import generate_output_filename
 
-    model_name = get_ollama_name("towerinstruct" if args.tower else "gemma3")
+    model_name = get_ollama_name(args.model)
+    output_file = args.output or generate_output_filename(
+        args.input_file, "translated", model_name
+    )
+
     translate_process(
         args.input_file,
-        args.output,
+        output_file,
         model_name,
         args.workers,
         args.limit,
@@ -90,11 +95,45 @@ def handle_translate(args):
 
 def handle_evaluate(args):
     # Lazy import to avoid heavy deps when not needed
-    from evaluator import process_dataset as evaluate_process
-    from utils import generate_evaluation_filename
+    # Extract model key from input filename for proper folder structure
+    import os
 
-    output = args.output or generate_evaluation_filename(args.input_file)
+    from .evaluator import process_dataset as evaluate_process
+    from .utils import generate_evaluation_filename
+
+    input_filename = os.path.basename(args.input_file)
+    model_key = None
+    if "gemma" in input_filename.lower():
+        model_key = "gemma3"
+    elif "tower" in input_filename.lower():
+        model_key = "towerinstruct"
+
+    output = args.output or generate_evaluation_filename(args.input_file, model_key)
     evaluate_process(args.input_file, output, args.limit)
+
+
+def handle_analyze(args):
+    """Handle analyze command."""
+    # Lazy import to avoid heavy deps when not needed
+    from .analyser import main as analyze_main
+    from .utils import get_dataset_id
+
+    dataset_id = args.dataset or get_dataset_id(args.input_file)
+    analyze_main(dataset_id)
+
+
+def handle_single_analyze(args):
+    """Handle single-analyze command."""
+    from .single_analyzer import main as single_analyze_main
+
+    single_analyze_main(args.evaluation_file)
+
+
+def handle_compare(args):
+    """Handle compare command."""
+    from .comparison_analyzer import main as compare_main
+
+    compare_main(args.evaluation_files)
 
 
 def main():
@@ -105,10 +144,11 @@ def main():
         description="dadaptbr CLI",
         epilog=(
             "Examples:\n"
-            "  python main.py download agent_harm_chat\n"
-            "  python main.py translate datasets/raw/file.json --tower --limit=100\n"
-            "  python main.py evaluate datasets/processed/file.json --limit=100\n"
-            "  python main.py list\n  python main.py models\n  python main.py files"
+            "  dada download m_alert\n"
+            "  dada download xcomet-xl\n"
+            "  dada translate datasets/raw/file.json --model towerinstruct --limit=100\n"
+            "  dada evaluate datasets/processed/file.json --limit=100\n"
+            "  dada list\n  dada models\n  dada files"
         ),
     )
 
@@ -116,7 +156,7 @@ def main():
 
     # download
     p_download = subparsers.add_parser("download", help="Download dataset or model")
-    p_download.add_argument("target", help="Dataset or model name")
+    p_download.add_argument("target", help="Dataset or model name from config")
     p_download.set_defaults(func=handle_download)
 
     # translate
@@ -128,9 +168,11 @@ def main():
     )
     p_translate.add_argument("--limit", "-l", type=int, help="Limit examples")
     p_translate.add_argument(
-        "--tower",
-        action="store_true",
-        help="Use TowerInstruct-Mistral-7B-v0.2 instead of Gemma3",
+        "--model",
+        "-m",
+        choices=["gemma3", "towerinstruct"],
+        default="gemma3",
+        help="Translation model to use (default: gemma3)",
     )
     p_translate.set_defaults(func=handle_translate)
 
@@ -142,6 +184,34 @@ def main():
     p_evaluate.add_argument("--output", "-o", help="Output JSON file")
     p_evaluate.add_argument("--limit", "-l", type=int, help="Limit examples")
     p_evaluate.set_defaults(func=handle_evaluate)
+
+    # analyze
+    p_analyze = subparsers.add_parser(
+        "analyze", help="Analyze translation and evaluation results"
+    )
+    p_analyze.add_argument("input_file", help="Input JSON file to analyze")
+    p_analyze.add_argument(
+        "--dataset", "-d", help="Dataset ID (auto-detected if not provided)"
+    )
+    p_analyze.set_defaults(func=handle_analyze)
+
+    # single-analyze
+    p_single_analyze = subparsers.add_parser(
+        "single-analyze", help="Analyze a single evaluation file"
+    )
+    p_single_analyze.add_argument(
+        "evaluation_file", help="Evaluation JSON file to analyze"
+    )
+    p_single_analyze.set_defaults(func=handle_single_analyze)
+
+    # compare
+    p_compare = subparsers.add_parser(
+        "compare", help="Compare multiple evaluation files"
+    )
+    p_compare.add_argument(
+        "evaluation_files", nargs="+", help="Evaluation JSON files to compare"
+    )
+    p_compare.set_defaults(func=handle_compare)
 
     # list datasets
     p_list = subparsers.add_parser("list", help="List available datasets")

@@ -6,13 +6,14 @@ Dataset downloader for Hugging Face datasets.
 import argparse
 import os
 
-from datasets import load_dataset
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 
-from config.datasets import DATASETS, MODELS
-from config.logging import setup_logger
-from utils import ensure_directory_exists, save_json_file
+from datasets import load_dataset
+
+from .config.datasets import DATASETS, MODELS
+from .config.logging import setup_logger
+from .utils import ensure_directory_exists, save_json_file
 
 _LOGGER = setup_logger("downloader", log_to_file=True, log_prefix="download")
 
@@ -42,21 +43,27 @@ def download_dataset(dataset_id: str, output_dir: str = "datasets/raw"):
 
     except Exception as e:
         _LOGGER.error(f"Error downloading {dataset_id}: {e}")
+        _LOGGER.error("Make sure the dataset ID exists on Hugging Face Hub")
 
 
 def download_model(model_name: str):
     """Download a model from Hugging Face."""
-    if model_name not in MODELS:
-        _LOGGER.error(f"Unknown model: {model_name}")
-        return
-
-    repo_id = MODELS[model_name]
+    # Check if it's a predefined model first
+    if model_name in MODELS:
+        repo_id = MODELS[model_name]
+    else:
+        # Allow direct Hugging Face model IDs
+        repo_id = model_name
+        _LOGGER.info(f"Downloading custom model: {repo_id}")
 
     try:
         _LOGGER.info(f"Downloading {model_name} ({repo_id})...")
         models_dir = "models"
         ensure_directory_exists(models_dir)
-        local_model_dir = os.path.join(models_dir, model_name)
+
+        # Use repo_id for directory name to avoid conflicts
+        safe_name = repo_id.replace("/", "_").replace(":", "_")
+        local_model_dir = os.path.join(models_dir, safe_name)
         local_dir = snapshot_download(repo_id=repo_id, local_dir=local_model_dir)
         _LOGGER.info(f"Model downloaded to {local_dir}")
 
@@ -64,6 +71,7 @@ def download_model(model_name: str):
 
     except Exception as e:
         _LOGGER.error(f"Error downloading {model_name}: {e}")
+        _LOGGER.error("Make sure the model ID exists on Hugging Face Hub")
 
 
 def list_models():

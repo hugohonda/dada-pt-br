@@ -1,19 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "dadaptbr"
 version = "0.1.0"
-description = "Add your description here"
+description = "DADA-PT-BR"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "datasets>=4.1.1",
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
     "ollama>=0.6.0",
     "psutil>=7.1.0",
     "python-dotenv>=1.1.1",
+    "seaborn>=0.11.0",
     "unbabel-comet>=2.2.7",
 ]
 
 [project.scripts]
-dada = "main:main"
+dada = "dadaptbr.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 # Black configuration
 [tool.black]

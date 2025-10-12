@@ -3,7 +3,12 @@
 Dataset merger that selects the best translation based on scores from evaluations.
 """
 
-from utils import ensure_directory_exists, get_timestamp, load_json_file, save_json_file
+from .utils import (
+    ensure_directory_exists,
+    get_timestamp,
+    load_json_file,
+    save_json_file,
+)
 
 
 def load_evaluated_data():

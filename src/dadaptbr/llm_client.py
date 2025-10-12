@@ -5,24 +5,24 @@ LLM client module for Ollama integration.
 
 import ollama
 
-from config.datasets import LLM_DEFAULT_PARAMS, LLM_MODELS
-from config.logging import setup_logger
+from .config.datasets import LLM_DEFAULT_PARAMS, TRANSLATION_MODELS
+from .config.logging import setup_logger
 
 _LOGGER = setup_logger("llm_client", log_to_file=True, log_prefix="llm")
 
 
 def get_model_config(model_key: str = None):
     """Get model configuration by key or return default."""
-    if model_key and model_key in LLM_MODELS:
-        return LLM_MODELS[model_key]
+    if model_key and model_key in TRANSLATION_MODELS:
+        return TRANSLATION_MODELS[model_key]
 
     # Return default model
-    for config in LLM_MODELS.values():
+    for config in TRANSLATION_MODELS.values():
         if config.get("default", False):
             return config
 
     # Fallback to first model
-    return list(LLM_MODELS.values())[0]
+    return list(TRANSLATION_MODELS.values())[0]
 
 
 def get_ollama_name(model_key: str = None) -> str:
@@ -129,7 +129,7 @@ def get_model_display_name(model_name: str = None) -> str:
         return config["display_name"]
 
     # Try to find by Ollama name
-    for config in LLM_MODELS.values():
+    for config in TRANSLATION_MODELS.values():
         if config["ollama_name"] == model_name:
             return config["display_name"]
 
@@ -139,12 +139,12 @@ def get_model_display_name(model_name: str = None) -> str:
 
 def list_configured_models():
     """List all configured models."""
-    return list(LLM_MODELS.keys())
+    return list(TRANSLATION_MODELS.keys())
 
 
 def get_default_model_key() -> str:
     """Get the default model key."""
-    for key, config in LLM_MODELS.items():
+    for key, config in TRANSLATION_MODELS.items():
         if config.get("default", False):
             return key
-    return list(LLM_MODELS.keys())[0]
+    return list(TRANSLATION_MODELS.keys())[0]
