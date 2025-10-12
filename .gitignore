@@ -5,6 +5,7 @@ datasets
 logs
 reports
 models
+data
 
 # MacOS
 .DS_Store
