@@ -9,16 +9,13 @@ description = "DADA-PT-BR"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "accelerate>=1.11.0",
-    "datasets>=4.1.1",
-    "matplotlib>=3.5.0",
+    "transformers>=4.57.0",
+    "torch>=2.0.0",
+    "unbabel-comet>=2.2.7",
     "numpy>=1.21.0",
     "ollama>=0.6.0",
-    "psutil>=7.1.0",
     "python-dotenv>=1.1.1",
-    "seaborn>=0.11.0",
     "tqdm>=4.64.0",
-    "unbabel-comet>=2.2.7",
 ]
 
 [project.scripts]
