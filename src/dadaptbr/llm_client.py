@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-LLM client module for Ollama integration.
-"""
-
 import ollama
 
 from .config.datasets import LLM_DEFAULT_PARAMS, TRANSLATION_MODELS
@@ -55,9 +50,12 @@ def init_ollama(model_name: str = None):
 def translate_text(text: str, client, model_name: str, prompt: str) -> str:
     """Translate text using specified model with config parameters."""
     try:
+        # Format the prompt with the actual text to translate
+        formatted_prompt = prompt.format(text=text)
+
         response = client.chat(
             model=model_name,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": formatted_prompt}],
             options=LLM_DEFAULT_PARAMS,
         )
 
@@ -73,78 +71,3 @@ def translate_text(text: str, client, model_name: str, prompt: str) -> str:
     except Exception as e:
         _LOGGER.error(f"Error translating text: {e}")
         return text
-
-
-def get_model_info(model_name: str = None):
-    """Get information about a specific model."""
-    if not model_name:
-        model_name = get_ollama_name()
-
-    try:
-        client = ollama.Client()
-        models = client.list()
-
-        # Find the specified model
-        for model in models.models:
-            if model.model == model_name:
-                return {
-                    "name": model.model,
-                    "size": getattr(model, "size", "Unknown"),
-                    "modified_at": str(getattr(model, "modified_at", "Unknown")),
-                    "digest": getattr(model, "digest", "Unknown")[:12] + "..."
-                    if hasattr(model, "digest")
-                    else "Unknown",
-                }
-
-        return {"name": model_name, "status": "Model not found in Ollama list"}
-
-    except Exception as e:
-        _LOGGER.warning(f"Could not get model info: {e}")
-        return {"name": model_name, "error": str(e)}
-
-
-def get_available_models():
-    """Get list of available models."""
-    try:
-        client = ollama.Client()
-        models = client.list()
-        if hasattr(models, "models") and models.models:
-            return [model.model for model in models.models]
-        return []
-    except Exception as e:
-        _LOGGER.error(f"Error getting available models: {e}")
-        return []
-
-
-def is_model_available(model_name: str) -> bool:
-    """Check if a model is available."""
-    available_models = get_available_models()
-    return model_name in available_models
-
-
-def get_model_display_name(model_name: str = None) -> str:
-    """Get a human-readable name for the model."""
-    if not model_name:
-        config = get_model_config()
-        return config["display_name"]
-
-    # Try to find by Ollama name
-    for config in TRANSLATION_MODELS.values():
-        if config["ollama_name"] == model_name:
-            return config["display_name"]
-
-    # Fallback to original name
-    return model_name
-
-
-def list_configured_models():
-    """List all configured models."""
-    return list(TRANSLATION_MODELS.keys())
-
-
-def get_default_model_key() -> str:
-    """Get the default model key."""
-    for key, config in TRANSLATION_MODELS.items():
-        if config.get("default", False):
-            return key
-    return list(TRANSLATION_MODELS.keys())[0]

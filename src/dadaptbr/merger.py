@@ -1,195 +1,236 @@
-#!/usr/bin/env python3
-"""
-Dataset merger that selects the best translation based on scores from evaluations.
-"""
+import argparse
 
+from .config.datasets import DEFAULT_MODELS
+from .config.logging import setup_logger
 from .utils import (
-    ensure_directory_exists,
+    generate_merge_filename,
+    get_dataset_id,
     get_timestamp,
     load_json_file,
     save_json_file,
 )
 
-
-def load_evaluated_data():
-    """Load both evaluated datasets and original data for categories."""
-    print("Loading evaluated datasets...")
-
-    gemma_data = load_json_file("data/dadaptbr_M-ALERT_train_gemma_evaluated.json")
-    tower_data = load_json_file("data/dadaptbr_M-ALERT_train_tower_evaluated.json")
-    original_data = load_json_file("data/dadaptbr_M-ALERT_train_gemma.json")
-
-    print(f"Loaded {len(gemma_data)} Gemma3 evaluations")
-    print(f"Loaded {len(tower_data)} TowerInstruct evaluations")
-    print(f"Loaded {len(original_data)} original entries")
-
-    return gemma_data, tower_data, original_data
+_LOGGER = setup_logger(__name__)
 
 
-def create_id_mapping(data, model_name):
-    """Create ID to item mapping for a dataset."""
-    id_map = {}
-    for item in data:
-        item_id = item["id"]
-        if item_id in id_map:
-            print(f"Warning: Duplicate ID {item_id} found in {model_name}")
-        id_map[item_id] = item
-    return id_map
+def merge_evaluations(
+    file1_path: str, file2_path: str, output_path: str, limit: int = None
+):
+    """Merge two evaluation files, keeping the best translation for each example."""
+    import time
 
+    start_time = time.time()
+    _LOGGER.info(f"Merging evaluations from: {file1_path} and {file2_path}")
 
-def merge_best_translations(gemma_data, tower_data, original_data):
-    """Merge datasets by selecting the best translation for each ID."""
-    print("Creating ID mappings...")
+    # Load both evaluation files
+    raw_data1 = load_json_file(file1_path)
+    raw_data2 = load_json_file(file2_path)
 
-    gemma_map = create_id_mapping(gemma_data, "Gemma3")
-    tower_map = create_id_mapping(tower_data, "TowerInstruct")
-    original_map = create_id_mapping(original_data, "Original")
+    # Handle new data structure with metadata
+    if isinstance(raw_data1, dict) and "data" in raw_data1:
+        data1 = raw_data1["data"]
+        metadata1 = raw_data1.get("metadata", {})
+        _LOGGER.info(f"Loaded file1 with metadata: {metadata1}")
+    else:
+        data1 = raw_data1
+        metadata1 = {}
 
-    # Get all unique IDs
-    all_ids = set(gemma_map.keys()) | set(tower_map.keys())
-    print(f"Found {len(all_ids)} unique IDs")
+    if isinstance(raw_data2, dict) and "data" in raw_data2:
+        data2 = raw_data2["data"]
+        metadata2 = raw_data2.get("metadata", {})
+        _LOGGER.info(f"Loaded file2 with metadata: {metadata2}")
+    else:
+        data2 = raw_data2
+        metadata2 = {}
+
+    if limit:
+        data1 = data1[:limit]
+        data2 = data2[:limit]
+        _LOGGER.info(f"Limited to {limit} examples")
+
+    # Ensure both files have the same number of examples
+    if len(data1) != len(data2):
+        _LOGGER.warning(f"Different number of examples: {len(data1)} vs {len(data2)}")
+        min_length = min(len(data1), len(data2))
+        data1 = data1[:min_length]
+        data2 = data2[:min_length]
+        _LOGGER.info(f"Using first {min_length} examples from each file")
 
     merged_data = []
-    gemma_wins = 0
-    tower_wins = 0
-    ties = 0
+    stats = {"total": len(data1), "from_file1": 0, "from_file2": 0, "tie": 0}
 
-    print("Merging translations...")
-    for item_id in sorted(all_ids):
-        gemma_item = gemma_map.get(item_id)
-        tower_item = tower_map.get(item_id)
-
-        if gemma_item and tower_item:
-            # Both models have this ID - compare scores
-            gemma_score = gemma_item["score"]
-            tower_score = tower_item["score"]
-
-            if gemma_score > tower_score:
-                best_item = gemma_item.copy()
-                best_item["selected_model"] = "gemma3"
-                gemma_wins += 1
-            elif tower_score > gemma_score:
-                best_item = tower_item.copy()
-                best_item["selected_model"] = "towerinstruct"
-                tower_wins += 1
-            else:
-                # Tie - prefer TowerInstruct (based on empirical superiority)
-                best_item = tower_item.copy()
-                best_item["selected_model"] = "towerinstruct"
-                ties += 1
-
-        elif gemma_item:
-            # Only Gemma3 has this ID
-            best_item = gemma_item.copy()
-            best_item["selected_model"] = "gemma3"
-            gemma_wins += 1
-        elif tower_item:
-            # Only TowerInstruct has this ID
-            best_item = tower_item.copy()
-            best_item["selected_model"] = "towerinstruct"
-            tower_wins += 1
-        else:
-            print(f"Warning: No data found for ID {item_id}")
+    for i, (example1, example2) in enumerate(zip(data1, data2, strict=False)):
+        # Ensure both examples have the same source and index
+        if example1.get("source") != example2.get("source"):
+            _LOGGER.warning(f"Example {i}: Different sources, skipping")
             continue
 
-        # Add metadata
-        best_item["gemma_score"] = gemma_item["score"] if gemma_item else None
-        best_item["tower_score"] = tower_item["score"] if tower_item else None
-        best_item["score_difference"] = (
-            (gemma_item["score"] - tower_item["score"])
-            if gemma_item and tower_item
-            else None
-        )
+        if example1.get("index") != example2.get("index"):
+            _LOGGER.warning(f"Example {i}: Different indices, skipping")
+            continue
 
-        # Add category from original data
-        original_item = original_map.get(item_id)
-        if original_item and "category" in original_item:
-            best_item["category"] = original_item["category"]
+        # Compare scores to determine which translation to keep
+        score1 = example1.get("score", 0.0)
+        score2 = example2.get("score", 0.0)
+
+        # Extract model names from metadata
+        model1 = metadata1.get("source_metadata", {}).get("model_name", "unknown")
+        model2 = metadata2.get("source_metadata", {}).get("model_name", "unknown")
+
+        # Helper function to optimize error spans
+        def optimize_error_spans(error_spans):
+            """Keep only essential error span information."""
+            if not error_spans:
+                return []
+
+            optimized = []
+            for span in error_spans:
+                # Keep only essential fields: text, severity, and position
+                optimized_span = {
+                    "text": span.get("text", ""),
+                    "severity": span.get("severity", "minor"),
+                    "start": span.get("start", 0),
+                    "end": span.get("end", 0),
+                }
+                # Only include confidence if it's high (significant error)
+                if span.get("confidence", 0) > 0.5:
+                    optimized_span["confidence"] = round(span.get("confidence", 0), 2)
+                optimized.append(optimized_span)
+
+            return optimized
+
+        # Helper function to create optimized merged example
+        def create_optimized_example(
+            selected_example,
+            selected_model,
+            selected_score,
+            alternative_example,
+            alternative_model,
+            alternative_score,
+            merge_reason,
+        ):
+            """Create a clean merged example with only essential information."""
+            # Only include alternative information if scores are close (within 0.1)
+            score_diff = abs(selected_score - alternative_score)
+            include_alternative = score_diff < 0.1
+
+            result = {
+                # Core fields
+                "index": selected_example.get("index", 0),
+                "id": selected_example.get("id", 0),
+                "source": selected_example.get("source", ""),
+                "translation": selected_example.get("translation", ""),
+                "score": round(selected_score, 4),  # Round to 4 decimal places
+                # Merge metadata
+                "merged_from": merge_reason,
+                "original_model": selected_model,
+                # Optimized error spans (only from selected translation)
+                "error_spans": optimize_error_spans(
+                    selected_example.get("error_spans", [])
+                ),
+            }
+
+            # Only include alternative info if scores are close
+            if include_alternative:
+                result.update(
+                    {
+                        "alternative_score": round(alternative_score, 4),
+                        "alternative_translation": alternative_example.get(
+                            "translation", ""
+                        ),
+                        "alternative_model": alternative_model,
+                    }
+                )
+
+            # Only include system score if it's significantly different from main score
+            system_score = selected_example.get("system_score", selected_score)
+            if abs(system_score - selected_score) > 0.05:
+                result["system_score"] = round(system_score, 4)
+
+            return result
+
+        if score1 > score2:
+            # Model 1 has better score
+            best_example = create_optimized_example(
+                example1, model1, score1, example2, model2, score2, model1
+            )
+            stats["from_file1"] += 1
+        elif score2 > score1:
+            # Model 2 has better score
+            best_example = create_optimized_example(
+                example2, model2, score2, example1, model1, score1, model2
+            )
+            stats["from_file2"] += 1
         else:
-            best_item["category"] = "unknown"
+            # Tie - prefer configured tie-breaker model if available, otherwise prefer model1
+            tie_breaker = DEFAULT_MODELS["tie_breaker"]
+            if model1 == tie_breaker:
+                best_example = create_optimized_example(
+                    example1, model1, score1, example2, model2, score2, f"{model1}_tie"
+                )
+            elif model2 == tie_breaker:
+                best_example = create_optimized_example(
+                    example2, model2, score2, example1, model1, score1, f"{model2}_tie"
+                )
+            else:
+                # Neither is Tower, prefer model1
+                best_example = create_optimized_example(
+                    example1, model1, score1, example2, model2, score2, f"{model1}_tie"
+                )
+            stats["tie"] += 1
 
-        merged_data.append(best_item)
+        merged_data.append(best_example)
 
-    print("Merging complete:")
-    print(f"  Gemma3 wins: {gemma_wins}")
-    print(f"  TowerInstruct wins: {tower_wins}")
-    print(f"  Ties: {ties}")
-    print(f"  Total merged: {len(merged_data)}")
+    # Calculate total processing time
+    total_processing_time = time.time() - start_time
+
+    # Extract model names for analysis
+    model1 = metadata1.get("source_metadata", {}).get("model_name", "unknown")
+    model2 = metadata2.get("source_metadata", {}).get("model_name", "unknown")
+
+    # Create merge metadata with model analysis using consolidated approach
+    from .metadata_utils import create_merge_metadata
+
+    merge_metadata = create_merge_metadata(
+        pipeline_id=get_timestamp(),
+        dataset_id=get_dataset_id(file1_path),
+        total_examples=len(merged_data),
+        processing_time=total_processing_time,
+        model1=model1,
+        model2=model2,
+        stats=stats,
+        source_files={"file1": file1_path, "file2": file2_path},
+    )
+
+    # Create final data structure
+    final_data = {"metadata": merge_metadata, "data": merged_data}
+
+    # Save merged data
+    save_json_file(final_data, output_path)
+
+    # Log statistics
+    _LOGGER.info("Merge completed:")
+    _LOGGER.info(f"  Total examples: {stats['total']}")
+    _LOGGER.info(f"  From file1: {stats['from_file1']}")
+    _LOGGER.info(f"  From file2: {stats['from_file2']}")
+    _LOGGER.info(f"  Ties: {stats['tie']}")
+    _LOGGER.info(f"  Merged results saved to: {output_path}")
 
     return merged_data
 
 
-def save_merged_dataset(merged_data):
-    """Save the merged dataset with timestamp."""
-    timestamp = get_timestamp()
-    filename = f"data/dadaptbr_M-ALERT_train_merged_best_{timestamp}.json"
-
-    ensure_directory_exists("data")
-    save_json_file(merged_data, filename)
-
-    print(f"Merged dataset saved to: {filename}")
-    return filename
-
-
-def print_summary(merged_data):
-    """Print summary statistics."""
-    print("\n" + "=" * 60)
-    print("MERGED DATASET SUMMARY")
-    print("=" * 60)
-
-    gemma_selected = sum(
-        1 for item in merged_data if item["selected_model"] == "gemma3"
-    )
-    tower_selected = sum(
-        1 for item in merged_data if item["selected_model"] == "towerinstruct"
-    )
-
-    scores = [item["score"] for item in merged_data]
-    avg_score = sum(scores) / len(scores)
-    max_score = max(scores)
-    min_score = min(scores)
-
-    print(f"Total translations: {len(merged_data):,}")
-    print(
-        f"Gemma3 selected: {gemma_selected:,} ({gemma_selected / len(merged_data) * 100:.1f}%)"
-    )
-    print(
-        f"TowerInstruct selected: {tower_selected:,} ({tower_selected / len(merged_data) * 100:.1f}%)"
-    )
-    print(f"Average score: {avg_score:.4f}")
-    print(f"Score range: {min_score:.4f} - {max_score:.4f}")
-
-    # Quality distribution
-    excellent = sum(1 for s in scores if s >= 0.95)
-    good = sum(1 for s in scores if 0.80 <= s < 0.95)
-    fair = sum(1 for s in scores if 0.60 <= s < 0.80)
-    poor = sum(1 for s in scores if s < 0.60)
-
-    print("\nQuality distribution:")
-    print(f"  Excellent (≥0.95): {excellent:,} ({excellent / len(scores) * 100:.1f}%)")
-    print(f"  Good (0.80-0.94): {good:,} ({good / len(scores) * 100:.1f}%)")
-    print(f"  Fair (0.60-0.79): {fair:,} ({fair / len(scores) * 100:.1f}%)")
-    print(f"  Poor (<0.60): {poor:,} ({poor / len(scores) * 100:.1f}%)")
-
-
 def main():
-    """Main function."""
-    print("Merging Best Translations Dataset")
-    print("=" * 60)
+    """CLI entry point for merger."""
+    parser = argparse.ArgumentParser(description="Merge evaluation results")
+    parser.add_argument("file1", help="First evaluation JSON file")
+    parser.add_argument("file2", help="Second evaluation JSON file")
+    parser.add_argument("--output", "-o", help="Output JSON file")
+    parser.add_argument("--limit", "-l", type=int, help="Limit examples")
 
-    # Load data
-    gemma_data, tower_data, original_data = load_evaluated_data()
+    args = parser.parse_args()
 
-    # Merge datasets
-    merged_data = merge_best_translations(gemma_data, tower_data, original_data)
-
-    # Save result
-    filename = save_merged_dataset(merged_data)
-
-    # Print summary
-    print_summary(merged_data)
-
-    print(f"\n✅ Merged dataset created successfully: {filename}")
+    output = args.output or generate_merge_filename(args.file1, args.file2)
+    merge_evaluations(args.file1, args.file2, output, args.limit)
 
 
 if __name__ == "__main__":

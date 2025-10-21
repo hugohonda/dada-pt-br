@@ -3,9 +3,7 @@
 
 datasets
 logs
-reports
-models
-data
+output
 
 # MacOS
 .DS_Store

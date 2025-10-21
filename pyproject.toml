@@ -9,6 +9,7 @@ description = "DADA-PT-BR"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "accelerate>=1.11.0",
     "datasets>=4.1.1",
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",
@@ -16,6 +17,7 @@ dependencies = [
     "psutil>=7.1.0",
     "python-dotenv>=1.1.1",
     "seaborn>=0.11.0",
+    "tqdm>=4.64.0",
     "unbabel-comet>=2.2.7",
 ]
 
@@ -27,7 +29,6 @@ where = ["src"]
 
 # Black configuration
 [tool.black]
-line-length = 88
 target-version = ['py310']
 include = '\.pyi?$'
 extend-exclude = '''
@@ -46,7 +47,6 @@ extend-exclude = '''
 
 # Ruff configuration
 [tool.ruff]
-line-length = 88
 target-version = "py310"
 select = [
     "E",  # pycodestyle errors

@@ -1,0 +1,367 @@
+import argparse
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+from tqdm import tqdm
+
+from .config.datasets import PHASE_WORKERS
+from .config.logging import setup_logger
+from .llm_client import get_ollama_name, init_ollama
+from .utils import (
+    get_dataset_id,
+    get_timestamp,
+    load_json_file,
+    save_json_file,
+    validate_file_exists,
+)
+
+_LOGGER = setup_logger("reviewer", log_to_file=True, log_prefix="review")
+
+
+def load_review_prompt() -> str:
+    """Load the review prompt template."""
+    prompt_path = Path(__file__).parent / "prompts" / "review.md"
+    try:
+        with open(prompt_path, encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        _LOGGER.error(f"Review prompt not found at {prompt_path}")
+        raise
+
+
+def review_translation(client, model_name: str, prompt: str) -> str:
+    """Review translation using specified model with custom prompt."""
+    try:
+        response = client.chat(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.1, "top_p": 0.9, "max_tokens": 2048},
+        )
+        return response["message"]["content"].strip()
+    except Exception as e:
+        _LOGGER.error(f"Error reviewing translation: {e}")
+        raise
+
+
+def format_review_prompt(
+    source: str,
+    translation: str,
+    score: float,
+    alternative_translation: str,
+    alternative_score: float,
+    error_spans: list[dict],
+) -> str:
+    """Format the review prompt with merged data including both translations."""
+    # Load the review prompt template
+    prompt_template = load_review_prompt()
+
+    # Format error spans as JSON
+    error_spans_json = json.dumps(error_spans, indent=2, ensure_ascii=False)
+
+    # Format the prompt template with the merged data
+    formatted_prompt = prompt_template.format(
+        source=source,
+        translation=translation,
+        score=score,
+        alternative_translation=alternative_translation,
+        alternative_score=alternative_score,
+        error_spans=error_spans_json,
+    )
+
+    return formatted_prompt
+
+
+def create_review_entry(example: dict, review_result: dict, index: int) -> dict:
+    """Create a clean review entry from example and review result."""
+    reviewed_translation = review_result.get("improved_translation", "")
+
+    return {
+        "index": example.get("index", index),
+        "id": example.get("id", index),
+        "source": example.get("source", ""),
+        "translation": example.get("translation", ""),
+        "score": example.get("score", 0.0),
+        "alternative_translation": example.get("alternative_translation", ""),
+        "alternative_score": example.get("alternative_score", 0.0),
+        "merged_from": example.get("merged_from", "unknown"),
+        "reviewed_translation": reviewed_translation,
+    }
+
+
+def review_single_example(
+    example: dict, client, model_name: str, prompt_template: str
+) -> dict:
+    """Review a single example from merged data and propose a better translation."""
+    try:
+        source = example.get("source", "")
+        selected_translation = example.get("translation", "")
+        selected_score = example.get("score", 0.0)
+        alternative_translation = example.get("alternative_translation", "")
+        alternative_score = example.get("alternative_score", 0.0)
+        error_spans = example.get("error_spans", [])
+        merged_from = example.get("merged_from", "unknown")
+
+        # Filter out low confidence error spans (confidence < 0.5)
+        filtered_error_spans = []
+        for span in error_spans:
+            confidence = span.get("confidence", 0.0)
+            if confidence >= 0.5:
+                filtered_error_spans.append(span)
+
+        error_spans = filtered_error_spans
+
+        # Smart review decision: always review if there's an alternative translation
+        # or if there are significant errors, even with high scores
+        should_skip = (
+            selected_score > 0.99
+            and not error_spans
+            and not alternative_translation.strip()
+        )
+
+        if should_skip:
+            return {
+                "improved_translation": "",  # Empty means not reviewed
+            }
+
+        # Format the review prompt with both translations
+        review_prompt = format_review_prompt(
+            source=source,
+            translation=selected_translation,
+            score=selected_score,
+            alternative_translation=alternative_translation,
+            alternative_score=alternative_score,
+            error_spans=error_spans,
+        )
+
+        # Get the improved translation using a custom review function
+        improved_translation = review_translation(
+            client=client, model_name=model_name, prompt=review_prompt
+        )
+
+        # Extract the improved translation from the response
+        # The model should return just the improved translation
+        improved_translation = improved_translation.strip()
+
+        # Remove quotes if present
+        if improved_translation.startswith('"') and improved_translation.endswith('"'):
+            improved_translation = improved_translation[1:-1]
+
+        # If the model returned the English text instead of Portuguese, skip this example
+        if improved_translation == source:
+            return {
+                "reviewed": False,
+                "reason": "Model returned English text instead of Portuguese translation",
+                "original_score": selected_score,
+            }
+
+        return {
+            "reviewed": True,
+            "original_translation": selected_translation,
+            "improved_translation": improved_translation,
+            "original_score": selected_score,
+            "alternative_translation": alternative_translation,
+            "alternative_score": alternative_score,
+            "merged_from": merged_from,
+            "error_spans": error_spans,
+        }
+
+    except Exception as e:
+        _LOGGER.error(f"Error reviewing example {example.get('id', 'unknown')}: {e}")
+        return {
+            "reviewed": False,
+            "error": str(e),
+            "original_score": example.get("score", 0.0),
+        }
+
+
+def review_single_parallel(args):
+    """Review a single example - used for parallel processing."""
+    example, client, model_name, prompt_template, index = args
+    start_time = time.time()
+    
+    try:
+        review_result = review_single_example(example, client, model_name, prompt_template)
+        processing_time = time.time() - start_time
+        
+        return {
+            "success": True,
+            "result": review_result,
+            "processing_time": processing_time,
+            "index": index,
+            "error": None,
+        }
+    except Exception as e:
+        processing_time = time.time() - start_time
+        return {
+            "success": False,
+            "result": {"improved_translation": "", "error": str(e)},
+            "processing_time": processing_time,
+            "index": index,
+            "error": str(e),
+        }
+
+
+def process_dataset(
+    input_file: str,
+    output_file: str,
+    model_name: str = "tower",
+    limit: int | None = None,
+    max_workers: int = None,
+):
+    """Process merged evaluation results and generate improved translations."""
+    import time
+
+    start_time = time.time()
+    _LOGGER.info(f"Reviewing merged translations from: {input_file}")
+
+    # Load merged evaluation results
+    raw_data = load_json_file(input_file)
+    if not raw_data:
+        _LOGGER.error("No data found in input file")
+        return
+
+    # Handle new data structure with metadata
+    if isinstance(raw_data, dict) and "data" in raw_data:
+        data = raw_data["data"]
+        metadata = raw_data.get("metadata", {})
+        _LOGGER.info(f"Loaded merged evaluation data with metadata: {metadata}")
+    else:
+        # Handle old data structure (list of examples)
+        data = raw_data
+        metadata = {}
+
+    # Apply limit if specified
+    if limit:
+        data = data[:limit]
+        _LOGGER.info(f"Limited to {limit} examples")
+
+    # Get dataset ID
+    dataset_id = get_dataset_id(input_file)
+
+    _LOGGER.info(f"Reviewing {len(data)} examples from dataset: {dataset_id}")
+
+    # Initialize Ollama client
+    ollama_model_name = get_ollama_name(model_name)
+    client = init_ollama(ollama_model_name)
+
+    # Load review prompt
+    prompt_template = load_review_prompt()
+
+    # Set default workers if not provided
+    if max_workers is None:
+        max_workers = PHASE_WORKERS["review"]["default"]
+    
+    # Limit workers to safe maximum
+    max_workers = min(max_workers, PHASE_WORKERS["review"]["max"])
+    
+    _LOGGER.info(f"Processing {len(data)} examples with {max_workers} workers...")
+
+    # Prepare task arguments for parallel processing
+    task_args = [
+        (example, client, ollama_model_name, prompt_template, i)
+        for i, example in enumerate(data)
+    ]
+
+    # Process examples in parallel
+    reviewed_data = [None] * len(data)  # Pre-allocate list for ordered results
+    review_stats = {"total": len(data), "reviewed": 0, "skipped": 0, "errors": 0}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {
+            executor.submit(review_single_parallel, args): args[4] for args in task_args
+        }
+
+        for future in tqdm(
+            as_completed(future_to_index),
+            desc=f"Reviewing with {model_name.split('/')[-1]}",
+            total=len(task_args),
+        ):
+            result = future.result()
+            index = result["index"]
+            
+            # Create clean review entry
+            review_entry = create_review_entry(data[index], result["result"], index)
+            
+            # Add error if there was one
+            if result["result"].get("error"):
+                review_entry["error"] = result["result"].get("error")
+                review_stats["errors"] += 1
+            elif bool(review_entry["reviewed_translation"].strip()):
+                review_stats["reviewed"] += 1
+            else:
+                review_stats["skipped"] += 1
+
+            reviewed_data[index] = review_entry
+
+    # Save reviewed data with metadata
+    _LOGGER.info("Saving review results...")
+
+    # Calculate review statistics using the new logic
+    reviewed_items = [
+        item for item in reviewed_data if item.get("reviewed_translation", "").strip()
+    ]
+    improvement_rate = (
+        review_stats["reviewed"] / len(reviewed_data) if reviewed_data else 0
+    )
+
+    # Calculate total processing time
+    total_processing_time = time.time() - start_time
+
+    # Create review metadata with analysis using consolidated approach
+    from .metadata_utils import create_review_metadata
+
+    review_metadata = create_review_metadata(
+        pipeline_id=get_timestamp(),
+        dataset_id=get_dataset_id(input_file),
+        total_examples=len(reviewed_data),
+        processing_time=total_processing_time,
+        model_name=model_name,
+        reviewed_data=reviewed_data,
+        review_stats=review_stats,
+    )
+
+    # Create final data structure
+    final_data = {"metadata": review_metadata, "data": reviewed_data}
+
+    save_json_file(final_data, output_file)
+
+    # Generate summary
+    _LOGGER.info("Review completed:")
+    _LOGGER.info(f"  Total examples: {review_stats['total']}")
+    _LOGGER.info(f"  Reviewed: {review_stats['reviewed']}")
+    _LOGGER.info(f"  Skipped: {review_stats['skipped']}")
+    _LOGGER.info(f"  Errors: {review_stats['errors']}")
+    _LOGGER.info(f"  Review results saved to: {output_file}")
+
+
+def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(description="Translation Reviewer")
+    parser.add_argument("input_file", help="Input evaluation JSON file")
+    parser.add_argument("--output", "-o", help="Output file")
+    parser.add_argument(
+        "--model", "-m", default="tower", help="Model to use for review"
+    )
+    parser.add_argument("--limit", "-l", type=int, help="Limit examples (default: all)")
+
+    args = parser.parse_args()
+
+    if not validate_file_exists(args.input_file):
+        _LOGGER.error(f"File not found: {args.input_file}")
+        return
+
+    # Generate output filename if not provided
+    if not args.output:
+        input_path = Path(args.input_file)
+        output_filename = f"{input_path.stem}_reviewed{input_path.suffix}"
+        output_file = input_path.parent / output_filename
+    else:
+        output_file = args.output
+
+    process_dataset(args.input_file, str(output_file), args.model, args.limit)
+
+
+if __name__ == "__main__":
+    main()

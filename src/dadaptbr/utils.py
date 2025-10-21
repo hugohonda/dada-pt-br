@@ -1,10 +1,7 @@
-"""
-Common utility functions
-"""
-
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 
@@ -31,105 +28,36 @@ def save_json_file(data: Any, file_path: str, indent: int = 2) -> None:
         json.dump(data, f, ensure_ascii=False, indent=indent)
 
 
-def save_jsonl_line(data: dict[str, Any], file_path: str) -> None:
-    """Append a single line to JSONL file."""
-    ensure_directory_exists(os.path.dirname(file_path))
-    with open(file_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+def extract_texts(example: dict[str, Any]) -> tuple[str, str]:
+    """Extract source and translation texts using simplified logic."""
+    # Standardized field extraction
+    source = example.get("en", "")
+    translation = example.get("pt-br", "")
 
+    # Fallback to other common field names
+    if not source:
+        source = example.get("prompt", example.get("text", example.get("content", "")))
+    if not translation:
+        translation = example.get("pt", example.get("translation", ""))
 
-def load_jsonl_file(file_path: str) -> list[dict[str, Any]]:
-    """Load JSONL file and return list of dictionaries."""
-    if not os.path.exists(file_path):
-        return []
-
-    data = []
-    with open(file_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                data.append(json.loads(line))
-    return data
-
-
-def detect_dataset_type(example: dict[str, Any], dataset_id: str = None) -> str:
-    """Detect dataset type based on example structure and dataset config."""
-    from .config.datasets import DATASET_CONFIGS
-
-    # If dataset_id is provided, use config
-    if dataset_id and dataset_id in DATASET_CONFIGS:
-        return DATASET_CONFIGS[dataset_id]["type"]
-
-    # Fallback: detect from example structure
-    keys = set(example.keys())
-
-    # Check against all dataset configs
-    for config in DATASET_CONFIGS.values():
-        if all(key in keys for key in config["detection_keys"]):
-            return config["type"]
-
-    # Default to single language
-    return "single"
-
-
-def extract_texts(
-    example: dict[str, Any], dataset_type: str, dataset_id: str = None
-) -> tuple[str, str]:
-    """Extract source and translation texts based on dataset type and config."""
-    from .config.datasets import DATASET_CONFIGS
-
-    # If dataset_id is provided, use config
-    if dataset_id and dataset_id in DATASET_CONFIGS:
-        config = DATASET_CONFIGS[dataset_id]
-        source_field = config["source_field"]
-        target_field = config["target_field"]
-        return example.get(source_field, ""), example.get(target_field, "")
-
-    # Fallback: use dataset type
-    if dataset_type == "multilingual":
-        return example.get("en", ""), example.get("pt", "")
-    elif dataset_type == "safety":
-        return example.get("prompt", ""), example.get("translation", "")
-    else:
-        return example.get("text", example.get("content", "")), example.get(
-            "translation", ""
-        )
+    return source, translation
 
 
 def get_dataset_id(input_file: str) -> str:
     """Extract dataset ID from input filename, mapping to config keys."""
-    from .config.datasets import DATASETS
+    import re
+
+    from .config.datasets import DATASETS, FILENAME_MAPPINGS, FILENAME_PATTERNS
 
     filename = os.path.basename(input_file)
 
-    # Map downloaded filenames back to config keys
-    filename_mappings = {
-        # M-ALERT dataset
-        "felfri_M-ALERT_train.json": "m_alert",
-        "felfri_M-ALERT_test.json": "m_alert",
-        # ALERT datasets
-        "Babelscape_ALERT_alert_train.json": "alert",
-        "Babelscape_ALERT_alert_test.json": "alert",
-        "Babelscape_ALERT_alert_adversarial_train.json": "alert_adversarial",
-        "Babelscape_ALERT_alert_adversarial_test.json": "alert_adversarial",
-        # AgentHarm datasets
-        "ai-safety-institute_AgentHarm_chat_train.json": "agent_harm_chat",
-        "ai-safety-institute_AgentHarm_chat_test.json": "agent_harm_chat",
-        "ai-safety-institute_AgentHarm_harmful_train.json": "agent_harm_harmful",
-        "ai-safety-institute_AgentHarm_harmful_test.json": "agent_harm_harmful",
-        "ai-safety-institute_AgentHarm_harmless_benign_train.json": "agent_harm_harmless",
-        "ai-safety-institute_AgentHarm_harmless_benign_test.json": "agent_harm_harmless",
-    }
-
     # Check direct mapping first
-    if filename in filename_mappings:
-        return filename_mappings[filename]
+    if filename in FILENAME_MAPPINGS:
+        return FILENAME_MAPPINGS[filename]
 
     # Check for new simplified pattern: {pipeline_id}_{dataset_id}.json
     # Extract dataset_id from pattern like "20251011_195003_m_alert.json"
-    import re
-
-    pattern = r"^\d{8}_\d{6}_([a-z_]+)\.json$"
+    pattern = FILENAME_PATTERNS["pipeline_dataset"]
     match = re.match(pattern, filename)
     if match:
         return match.group(1)
@@ -145,55 +73,32 @@ def get_dataset_id(input_file: str) -> str:
     )
 
 
-def get_dataset_id_from_data(data: list) -> str:
-    """Extract dataset ID from data content when filename is not available."""
-    if not data:
-        return "unknown"
-
-    # Try to detect dataset type from data structure
-    first_item = data[0]
-
-    # Check for M-ALERT structure
-    if "instruction" in first_item and "output" in first_item:
-        return "m_alert"
-
-    # Check for ALERT structure
-    if "text" in first_item and "label" in first_item:
-        return "alert"
-
-    # Check for AgentHarm structure
-    if "messages" in first_item:
-        return "agent_harm_chat"
-
-    # Check for AgentHarm harmful/harmless structure
-    if "prompt" in first_item and "category" in first_item and "name" in first_item:
-        # For now, default to harmful since we can't distinguish easily
-        # This could be improved by checking the filename or other metadata
-        return "agent_harm_harmful"
-
-    # Default fallback
-    return "unknown"
-
-
-def get_category_translation(category: str, dataset_id: str) -> str:
-    """Get translated category name from config."""
-    from .config.datasets import DATASET_CONFIGS
-
-    if dataset_id in DATASET_CONFIGS:
-        categories = DATASET_CONFIGS[dataset_id]["categories"]
-        return categories.get(category, category)
-
-    return category
-
-
 def get_model_key_from_name(model_name: str) -> str:
     """Convert model name to config key."""
-    if "gemma3" in model_name:
-        return "gemma3"
-    elif "towerinstruct" in model_name:
-        return "towerinstruct"
-    else:
-        return "unknown"
+    from .config.datasets import MODEL_NAME_MAPPINGS
+    
+    # Check direct mapping first
+    if model_name in MODEL_NAME_MAPPINGS:
+        return MODEL_NAME_MAPPINGS[model_name]
+    
+    # Check partial matches
+    for key, value in MODEL_NAME_MAPPINGS.items():
+        if key in model_name:
+            return value
+    
+    # Fallback: return model_name as-is
+    return model_name
+
+
+def get_output_dir_name(output_type: str) -> str:
+    """Get the numbered output directory name for a given operation type."""
+    dir_mapping = {
+        "translated": "01-translated",
+        "evaluated": "02-evaluated", 
+        "merged": "03-merged",
+        "reviewed": "04-reviewed"
+    }
+    return dir_mapping.get(output_type, output_type)
 
 
 def generate_output_filename(
@@ -203,7 +108,7 @@ def generate_output_filename(
     dataset_id: str = None,
     pipeline_id: str = None,
 ) -> str:
-    """Generate output filename with simple, consistent logic."""
+    """Generate output filename with clean, consistent pattern."""
     if dataset_id is None:
         dataset_id = get_dataset_id(input_file)
 
@@ -211,14 +116,14 @@ def generate_output_filename(
     if pipeline_id is None:
         pipeline_id = get_timestamp()
 
-    # Simple structure: data/{output_type}/{model_key}/
+    # Clean pattern: {timestamp}_{dataset}_{model}_{operation}.json
+    output_dir = f"output/{get_output_dir_name(output_type)}"
+
     if model_name:
         model_key = get_model_key_from_name(model_name)
-        output_dir = f"data/{output_type}/{model_key}"
-        filename = f"{pipeline_id}_{dataset_id}.json"
+        filename = f"{pipeline_id}_{dataset_id}_{model_key}_{output_type}.json"
     else:
-        output_dir = f"data/{output_type}"
-        filename = f"{pipeline_id}_{dataset_id}.json"
+        filename = f"{pipeline_id}_{dataset_id}_{output_type}.json"
 
     ensure_directory_exists(output_dir)
     return os.path.join(output_dir, filename)
@@ -241,6 +146,31 @@ def generate_evaluation_filename(input_file: str, model_name: str = None) -> str
     return generate_output_filename(input_file, "evaluated", model_name)
 
 
+def generate_review_filename(input_file: str, model_name: str = None) -> str:
+    """Generate review output filename."""
+    return generate_output_filename(input_file, "reviewed", model_name)
+
+
+def generate_merge_filename(file1: str, file2: str) -> str:
+    """Generate output filename for merged evaluations."""
+    # Extract dataset name from first file
+    file1_name = Path(file1).stem
+    if "_" in file1_name:
+        # Extract dataset from pattern: {timestamp}_{dataset}_{model}_{operation}
+        parts = file1_name.split("_")
+        if len(parts) >= 2:
+            dataset_name = parts[1]  # Second part is dataset
+        else:
+            dataset_name = "merged"
+    else:
+        dataset_name = "merged"
+
+    timestamp = get_timestamp()
+    output_dir = f"output/{get_output_dir_name('merged')}"
+    ensure_directory_exists(output_dir)
+    return f"{output_dir}/{timestamp}_{dataset_name}_merged.json"
+
+
 def generate_report_filename(
     dataset_id: str,
     operation: str,
@@ -252,8 +182,8 @@ def generate_report_filename(
     if pipeline_id is None:
         pipeline_id = get_timestamp()
 
-    # Reports go directly in analysis folder, no dataset subdirectory
-    report_dir = "data/analysis"
+    # Reports go in main output folder
+    report_dir = "output"
     ensure_directory_exists(report_dir)
 
     # Simple filename: pipeline_id + dataset_id + operation (same pattern as data files)
@@ -262,29 +192,7 @@ def generate_report_filename(
     return os.path.join(report_dir, filename)
 
 
-def generate_log_filename(
-    dataset_id: str, operation: str, model_name: str = None
-) -> str:
-    """Generate log filename with organized structure."""
-    timestamp = get_timestamp()
-
-    if model_name:
-        model_key = get_model_key_from_name(model_name)
-        log_dir = f"outputs/logs/{operation}"
-        filename = f"{model_key}_{dataset_id}_{operation}_{timestamp}.log"
-    else:
-        log_dir = f"outputs/logs/{operation}"
-        filename = f"{dataset_id}_{operation}_{timestamp}.log"
-
-    ensure_directory_exists(log_dir)
-    return os.path.join(log_dir, filename)
-
-
-def generate_visualization_path(dataset_id: str, visualization_name: str) -> str:
-    """Generate visualization file path following data folder structure."""
-    viz_dir = f"data/analysis/{dataset_id}"
-    ensure_directory_exists(viz_dir)
-    return os.path.join(viz_dir, f"{visualization_name}.png")
+# Removed unused functions: generate_log_filename, generate_visualization_path
 
 
 def validate_file_exists(file_path: str) -> bool:

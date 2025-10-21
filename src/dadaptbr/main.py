@@ -1,15 +1,14 @@
-#!/usr/bin/env python3
-"""
-CLI interface DADA-PT-BR
-"""
-
 import argparse
 import os
 
 from dotenv import load_dotenv
 
-from .config.datasets import DATASETS, MODELS
-from .llm_client import get_ollama_name
+from .config.datasets import DATASETS, DEFAULT_MODELS, TRANSLATION_MODELS, PHASE_WORKERS
+
+
+def get_default_model(operation: str) -> str:
+    """Get default model for a specific operation."""
+    return DEFAULT_MODELS.get(operation, "tower")
 
 
 def list_datasets():
@@ -24,8 +23,8 @@ def list_models():
     """List available models."""
     print("Available models:")
     print("-" * 20)
-    for name, repo in MODELS.items():
-        print(f"{name}: {repo}")
+    for name, config in TRANSLATION_MODELS.items():
+        print(f"{name}: {config['display_name']} ({config['ollama_name']})")
 
 
 def list_files():
@@ -34,44 +33,31 @@ def list_files():
 
     print("Available files:")
     print("  Data files:")
-    for file in sorted(glob.glob("data/**/*.json", recursive=True)):
+    for file in sorted(glob.glob("output/**/*.json", recursive=True)):
         if os.path.exists(file):
             size = os.path.getsize(file) / (1024 * 1024)  # MB
             print(f"    • {file} ({size:.1f} MB)")
 
-    print("  Analysis files:")
-    for file in sorted(glob.glob("outputs/visualizations/**/*.png", recursive=True)):
-        if os.path.exists(file):
-            print(f"    • {file}")
-
     print("  Reports:")
-    for file in sorted(glob.glob("outputs/reports/**/*.json", recursive=True)):
+    for file in sorted(glob.glob("output/*_report.json", recursive=True)):
         if os.path.exists(file):
             print(f"    • {file}")
-    for file in sorted(glob.glob("outputs/reports/**/*.txt", recursive=True)):
+    for file in sorted(glob.glob("output/*_summary.txt", recursive=True)):
         if os.path.exists(file):
             print(f"    • {file}")
 
     print("  Logs:")
-    for file in sorted(glob.glob("outputs/logs/**/*.log", recursive=True)):
+    for file in sorted(glob.glob("logs/**/*.log", recursive=True)):
         if os.path.exists(file):
             print(f"    • {file}")
 
 
 def handle_download(args):
-    # Lazy import to avoid heavy deps when not needed
-    from .downloader import download_dataset, download_model
-
-    target = args.target
-    if target in DATASETS:
-        download_dataset(DATASETS[target])
-    elif target in MODELS:
-        download_model(target)
-    else:
-        print(f"Unknown dataset or model: {target}")
-        list_datasets()
-        print()
-        list_models()
+    """Download functionality removed - datasets should be placed in datasets/raw/"""
+    print("Download functionality removed.")
+    print("Please place your datasets in the datasets/raw/ directory.")
+    print("Available datasets:")
+    list_datasets()
 
 
 def handle_translate(args):
@@ -79,7 +65,8 @@ def handle_translate(args):
     from .translator import process_dataset as translate_process
     from .utils import generate_output_filename
 
-    model_name = get_ollama_name(args.model)
+    # Use model name directly - simplified approach
+    model_name = args.model
     output_file = args.output or generate_output_filename(
         args.input_file, "translated", model_name
     )
@@ -90,50 +77,49 @@ def handle_translate(args):
         model_name,
         args.workers,
         args.limit,
+        args.device,
     )
 
 
 def handle_evaluate(args):
     # Lazy import to avoid heavy deps when not needed
-    # Extract model key from input filename for proper folder structure
-    import os
-
     from .evaluator import process_dataset as evaluate_process
     from .utils import generate_evaluation_filename
 
-    input_filename = os.path.basename(args.input_file)
-    model_key = None
-    if "gemma" in input_filename.lower():
-        model_key = "gemma3"
-    elif "tower" in input_filename.lower():
-        model_key = "towerinstruct"
-
-    output = args.output or generate_evaluation_filename(args.input_file, model_key)
-    evaluate_process(args.input_file, output, args.limit)
+    output = args.output or generate_evaluation_filename(args.input_file)
+    evaluate_process(args.input_file, output, args.limit, args.device)
 
 
-def handle_analyze(args):
-    """Handle analyze command."""
+def handle_review(args):
     # Lazy import to avoid heavy deps when not needed
-    from .analyser import main as analyze_main
-    from .utils import get_dataset_id
+    from .reviewer import process_dataset as review_process
+    from .utils import generate_review_filename
 
-    dataset_id = args.dataset or get_dataset_id(args.input_file)
-    analyze_main(dataset_id)
-
-
-def handle_single_analyze(args):
-    """Handle single-analyze command."""
-    from .single_analyzer import main as single_analyze_main
-
-    single_analyze_main(args.evaluation_file)
+    output = args.output or generate_review_filename(args.input_file)
+    review_process(args.input_file, output, args.model, args.limit, args.workers)
 
 
-def handle_compare(args):
-    """Handle compare command."""
-    from .comparison_analyzer import main as compare_main
+def handle_merge(args):
+    # Lazy import to avoid heavy deps when not needed
+    from .merger import merge_evaluations
+    from .utils import generate_merge_filename
 
-    compare_main(args.evaluation_files)
+    output = args.output or generate_merge_filename(args.file1, args.file2)
+    merge_evaluations(args.file1, args.file2, output, args.limit)
+
+
+def download_models_cmd():
+    """Download all models automatically - simplified."""
+    print("Models are downloaded automatically when first used.")
+    print("Available models:")
+    list_models()
+
+
+def check_models():
+    """Check which models are available - simplified."""
+    print("Available models:")
+    list_models()
+    print("\nModels are downloaded automatically when first used.")
 
 
 def main():
@@ -145,9 +131,10 @@ def main():
         epilog=(
             "Examples:\n"
             "  dada download m_alert\n"
-            "  dada download xcomet-xl\n"
-            "  dada translate datasets/raw/file.json --model towerinstruct --limit=100\n"
-            "  dada evaluate datasets/processed/file.json --limit=100\n"
+            "  dada translate datasets/raw/file.json --model tower --limit=100\n"
+            "  dada evaluate output/translated/file.json --limit=100\n"
+            "  dada merge file1.json file2.json --limit=100\n"
+            "  dada review output/evaluated/merged_file.json --limit=100\n"
             "  dada list\n  dada models\n  dada files"
         ),
     )
@@ -155,7 +142,9 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # download
-    p_download = subparsers.add_parser("download", help="Download dataset or model")
+    p_download = subparsers.add_parser(
+        "download", help="Download dataset or model (simplified)"
+    )
     p_download.add_argument("target", help="Dataset or model name from config")
     p_download.set_defaults(func=handle_download)
 
@@ -164,15 +153,21 @@ def main():
     p_translate.add_argument("input_file", help="Input JSON file to translate")
     p_translate.add_argument("--output", "-o", help="Output JSON file")
     p_translate.add_argument(
-        "--workers", "-w", type=int, default=4, help="Number of parallel workers"
+        "--workers", "-w", type=int, default=PHASE_WORKERS["translation"]["default"], help="Number of parallel workers"
     )
     p_translate.add_argument("--limit", "-l", type=int, help="Limit examples")
     p_translate.add_argument(
         "--model",
         "-m",
-        choices=["gemma3", "towerinstruct"],
-        default="gemma3",
-        help="Translation model to use (default: gemma3)",
+        default=get_default_model("translation"),
+        help="Translation model to use (default: tower).",
+    )
+    p_translate.add_argument(
+        "--device",
+        "-d",
+        default="cpu",
+        choices=["cuda", "cpu", "auto"],
+        help="Device to use (default: cpu).",
     )
     p_translate.set_defaults(func=handle_translate)
 
@@ -183,35 +178,42 @@ def main():
     p_evaluate.add_argument("input_file", help="Input JSON file to evaluate")
     p_evaluate.add_argument("--output", "-o", help="Output JSON file")
     p_evaluate.add_argument("--limit", "-l", type=int, help="Limit examples")
+    p_evaluate.add_argument(
+        "--device",
+        "-d",
+        default="cpu",
+        choices=["cuda", "cpu", "auto"],
+        help="Device to use (default: cpu).",
+    )
     p_evaluate.set_defaults(func=handle_evaluate)
 
-    # analyze
-    p_analyze = subparsers.add_parser(
-        "analyze", help="Analyze translation and evaluation results"
+    # review
+    p_review = subparsers.add_parser(
+        "review", help="Review and improve translations based on evaluation results"
     )
-    p_analyze.add_argument("input_file", help="Input JSON file to analyze")
-    p_analyze.add_argument(
-        "--dataset", "-d", help="Dataset ID (auto-detected if not provided)"
+    p_review.add_argument("input_file", help="Input evaluation JSON file to review")
+    p_review.add_argument("--output", "-o", help="Output JSON file")
+    p_review.add_argument("--limit", "-l", type=int, help="Limit examples")
+    p_review.add_argument(
+        "--workers", "-w", type=int, default=PHASE_WORKERS["review"]["default"], help="Number of parallel workers"
     )
-    p_analyze.set_defaults(func=handle_analyze)
+    p_review.add_argument(
+        "--model",
+        "-m",
+        default=get_default_model("review"),
+        help="Model to use for review (default: gemma3).",
+    )
+    p_review.set_defaults(func=handle_review)
 
-    # single-analyze
-    p_single_analyze = subparsers.add_parser(
-        "single-analyze", help="Analyze a single evaluation file"
+    # merge
+    p_merge = subparsers.add_parser(
+        "merge", help="Merge evaluation results, keeping the best translations"
     )
-    p_single_analyze.add_argument(
-        "evaluation_file", help="Evaluation JSON file to analyze"
-    )
-    p_single_analyze.set_defaults(func=handle_single_analyze)
-
-    # compare
-    p_compare = subparsers.add_parser(
-        "compare", help="Compare multiple evaluation files"
-    )
-    p_compare.add_argument(
-        "evaluation_files", nargs="+", help="Evaluation JSON files to compare"
-    )
-    p_compare.set_defaults(func=handle_compare)
+    p_merge.add_argument("file1", help="First evaluation JSON file")
+    p_merge.add_argument("file2", help="Second evaluation JSON file")
+    p_merge.add_argument("--output", "-o", help="Output JSON file")
+    p_merge.add_argument("--limit", "-l", type=int, help="Limit examples")
+    p_merge.set_defaults(func=handle_merge)
 
     # list datasets
     p_list = subparsers.add_parser("list", help="List available datasets")
@@ -224,6 +226,18 @@ def main():
     # files
     p_files = subparsers.add_parser("files", help="List downloaded files")
     p_files.set_defaults(func=lambda _args: list_files())
+
+    # download models (simplified)
+    p_download_models = subparsers.add_parser(
+        "download-models", help="Download all models automatically (simplified)"
+    )
+    p_download_models.set_defaults(func=lambda _args: download_models_cmd())
+
+    # check models (simplified)
+    p_check = subparsers.add_parser(
+        "check-models", help="Check which models are available (simplified)"
+    )
+    p_check.set_defaults(func=lambda _args: check_models())
 
     args = parser.parse_args()
     args.func(args)

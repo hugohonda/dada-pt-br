@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Dataset translator.
-"""
-
 import argparse
 import os
 import time
@@ -11,19 +6,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from tqdm import tqdm
 
+from .config.datasets import FILE_PROCESSING, PHASE_WORKERS
 from .config.logging import setup_logger
 from .llm_client import get_ollama_name, init_ollama, translate_text
-from .report_generator import (
-    add_translation_result,
-    end_translation,
-    generate_translation_report,
-    start_translation,
-)
 from .utils import (
-    detect_dataset_type,
     ensure_directory_exists,
     generate_output_filename,
     get_dataset_id,
+    get_timestamp,
     load_json_file,
     save_json_file,
     validate_file_exists,
@@ -32,103 +22,104 @@ from .utils import (
 _LOGGER = setup_logger("translator", log_to_file=True, log_prefix="translation")
 
 
-def load_prompt(prompt_type: str) -> str:
-    """Load translation prompt based on type."""
+def load_prompt() -> str:
+    """Load the single standardized translation prompt."""
     import os
 
     # Get the directory where this module is located
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    prompt_file = os.path.join(current_dir, "prompts", f"translation_{prompt_type}.md")
+    prompt_file = os.path.join(current_dir, "prompts", "translation.md")
     with open(prompt_file, encoding="utf-8") as f:
         return f.read().strip()
 
 
+def standardize_category_name(category: str) -> str:
+    """Standardize category names to lowercase with underscores."""
+    if not category:
+        return category
+
+    # Convert to lowercase and replace spaces/special chars with underscores
+    return category.lower().replace(" ", "_").replace("-", "_").replace("+", "_plus")
+
+
+def preprocess_text(text: str) -> str:
+    """Standardized text preprocessing for all datasets."""
+    if not text:
+        return text
+
+    import re
+
+    # Remove instruction markers (common across datasets)
+    text = re.sub(
+        r"### (Instruction|Instrução|Response|Resposta|Sugestão):\s*\n?", "", text
+    )
+    text = re.sub(r"###\s*", "", text)
+
+    # Clean up whitespace
+    return text.strip()
+
+
+def ensure_standardized_output(translated: dict, original: dict) -> dict:
+    """Ensure the output follows the standardized format with only essential fields."""
+    # Find English text from original
+    en_text = ""
+    for field in ["prompt", "text", "content", "en"]:
+        if field in original and original[field]:
+            en_text = preprocess_text(original[field])
+            break
+
+    # Find Portuguese translation
+    pt_text = ""
+    for field in ["pt-br", "pt", "translation"]:
+        if field in translated and translated[field]:
+            pt_text = preprocess_text(translated[field])
+            break
+
+    # Create clean output with only essential fields
+    clean_output = {
+        "en": en_text,
+        "pt-br": pt_text,
+    }
+
+    # Add category and id from original
+    if "category" in original:
+        clean_output["category"] = standardize_category_name(original["category"])
+    if "id" in original:
+        clean_output["id"] = original["id"]
+
+    return clean_output
+
+
 def translate_single(args):
     """Translate a single example - used for parallel processing."""
-    example, client, model_name, prompt_template, dataset_type, index = args
+    example, client, model_name, prompt_template, index = args
     start_time = time.time()
 
     try:
-        translated = {}
-        for field_name, field_value in example.items():
-            if not field_value or not isinstance(field_value, str):
-                translated[field_name] = field_value
-                continue
+        # Find English text to translate
+        en_text = ""
+        for field in ["en", "prompt", "text", "content"]:
+            if field in example and example[field] and isinstance(example[field], str):
+                en_text = preprocess_text(example[field])
+                break
 
-            # Skip translation for certain fields
-            if field_name in [
-                "id",
-                "id_original",
-                "detailed_prompt",
-                "hint_included",
-                "category",
-            ]:
-                translated[field_name] = field_value
-                continue
+        if not en_text:
+            raise ValueError("No English text found to translate")
 
-            # Handle different dataset types using configuration
-            from .config.datasets import DATASET_CONFIGS
-            from .utils import get_dataset_id_from_data
-            
-            # Get dataset configuration
-            dataset_id = get_dataset_id_from_data([example])
-            if dataset_id and dataset_id in DATASET_CONFIGS:
-                config = DATASET_CONFIGS[dataset_id]
-                source_field = config.get("source_field", "prompt")
-                target_field = config.get("target_field", "translation")
-                
-                # Translate source field to target field
-                if field_name == source_field:
-                    if dataset_type == "multilingual" and field_name == "en":
-                        context = {
-                            "fr": example.get("fr", ""),
-                            "de": example.get("de", ""),
-                            "es": example.get("es", ""),
-                            "it": example.get("it", ""),
-                            "en": field_value,
-                        }
-                        prompt = prompt_template.format(text=field_value, **context)
-                        translated[target_field] = translate_text(
-                            field_value, client, model_name, prompt
-                        )
-                        translated[field_name] = field_value  # Keep original
-                    else:
-                        prompt = prompt_template.format(text=field_value)
-                        translated[target_field] = translate_text(
-                            field_value, client, model_name, prompt
-                        )
-                        translated[field_name] = field_value  # Keep original
-                else:
-                    translated[field_name] = field_value
-            else:
-                # Fallback to old logic for backward compatibility
-                if dataset_type == "multilingual" and field_name == "en":
-                    context = {
-                        "fr": example.get("fr", ""),
-                        "de": example.get("de", ""),
-                        "es": example.get("es", ""),
-                        "it": example.get("it", ""),
-                        "en": field_value,
-                    }
-                    prompt = prompt_template.format(text=field_value, **context)
-                    translated["pt"] = translate_text(
-                        field_value, client, model_name, prompt
-                    )
-                    translated[field_name] = field_value  # Keep original English
-                elif field_name in [
-                    "name",
-                    "prompt",
-                    "detailed_prompt",
-                    "text",
-                    "content",
-                    "en",
-                ]:
-                    prompt = prompt_template.format(text=field_value)
-                    translated[field_name] = translate_text(
-                        field_value, client, model_name, prompt
-                    )
-                else:
-                    translated[field_name] = field_value
+        # Translate to Portuguese
+        pt_text = translate_text(en_text, client, model_name, prompt_template)
+
+        # Create standardized output
+        translated = {
+            "en": en_text,
+            "pt-br": pt_text,
+        }
+
+        # Add category and id from original
+        if "category" in example:
+            translated["category"] = standardize_category_name(example["category"])
+        if "id" in example:
+            translated["id"] = example["id"]
 
         processing_time = time.time() - start_time
         return {
@@ -153,14 +144,25 @@ def process_dataset(
     input_file: str,
     output_file: str,
     model_name: str,
-    max_workers: int = 4,
+    max_workers: int = PHASE_WORKERS["translation"]["default"],
     limit: int = None,
+    device: str = FILE_PROCESSING["default_device"],
+    pipeline_id: str = None,
 ):
     """Process and translate a dataset file using specified model."""
-    start_translation()
+    # Generate pipeline ID if not provided
+    if pipeline_id is None:
+        pipeline_id = get_timestamp()
+
+    # Track total processing time
+    total_start_time = time.time()
+    _LOGGER.info(f"Translation process started - Pipeline ID: {pipeline_id}")
 
     try:
-        client = init_ollama(model_name)
+        # Get Ollama model name from config
+        ollama_model_name = get_ollama_name(model_name)
+        client = init_ollama(ollama_model_name)
+
         data = load_json_file(input_file)
         if not data:
             _LOGGER.error("Empty dataset")
@@ -171,10 +173,10 @@ def process_dataset(
             _LOGGER.info(f"Limited to {limit} examples")
 
         dataset_id = get_dataset_id(input_file)
-        dataset_type = detect_dataset_type(data[0], dataset_id)
-        _LOGGER.info(f"Dataset type: {dataset_type}, Dataset ID: {dataset_id}")
+        _LOGGER.info(f"Dataset ID: {dataset_id}")
 
-        prompt_template = load_prompt(dataset_type)
+        # Use single standardized prompt template
+        prompt_template = load_prompt()
         ensure_directory_exists(os.path.dirname(output_file))
 
         # Check for existing progress
@@ -190,14 +192,7 @@ def process_dataset(
         )
 
         task_args = [
-            (
-                example,
-                client,
-                model_name,
-                prompt_template,
-                dataset_type,
-                i + processed_count,
-            )
+            (example, client, ollama_model_name, prompt_template, i + processed_count)
             for i, example in enumerate(remaining_data)
         ]
 
@@ -206,7 +201,7 @@ def process_dataset(
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_index = {
-                executor.submit(translate_single, args): args[5] for args in task_args
+                executor.submit(translate_single, args): args[4] for args in task_args
             }
 
             for future in tqdm(
@@ -219,9 +214,13 @@ def process_dataset(
                 index = result["index"] - processed_count  # Adjust for resume
                 results[index] = result
 
-                add_translation_result(
-                    result["success"], result["processing_time"], result["error"]
-                )
+                # Log translation result
+                if result["success"]:
+                    _LOGGER.debug(
+                        f"Translation completed in {result['processing_time']:.2f}s"
+                    )
+                else:
+                    _LOGGER.error(f"Translation failed: {result['error']}")
 
                 if not result["success"]:
                     _LOGGER.error(
@@ -243,17 +242,33 @@ def process_dataset(
             if result and result["success"]:
                 translated_data.append(result["data"])
 
-        save_json_file(translated_data, output_file)
+        # Calculate total processing time
+        total_processing_time = time.time() - total_start_time
+
+        # Add comprehensive metadata to the data using consolidated approach
+        from .metadata_utils import create_translation_metadata
+
+        metadata = create_translation_metadata(
+            pipeline_id=pipeline_id,
+            dataset_id=dataset_id,
+            total_examples=len(translated_data),
+            processing_time=total_processing_time,
+            model_name=model_name,
+            max_workers=max_workers,
+            translated_data=translated_data,
+        )
+
+        # Create final data structure with metadata
+        final_data = {"metadata": metadata, "data": translated_data}
+
+        save_json_file(final_data, output_file)
 
         _LOGGER.info(f"Saved: {output_file}")
 
     finally:
-        end_translation()
-        report_file = generate_translation_report(
-            input_file, output_file, dataset_type, model_name
-        )
-        if report_file:
-            _LOGGER.info(f"Report: {report_file}")
+        _LOGGER.info("Translation process completed")
+
+        # Ollama handles memory management automatically
 
 
 def main():
@@ -262,19 +277,20 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Dataset Translator - Ollama Gemma3 & TowerInstruct-Mistral-7B-v0.2",
-        epilog="Examples:\n  python translator.py dataset.json\n  python translator.py dataset.json --tower --limit=100",
+        epilog="Examples:\n  python translator.py dataset.json\n  python translator.py dataset.json --model=tower --limit=100\n  python translator.py dataset.json --model=gemma3",
     )
 
     parser.add_argument("input_file", help="Input JSON file to translate")
     parser.add_argument("--output", "-o", help="Output JSON file")
     parser.add_argument(
-        "--workers", "-w", type=int, default=4, help="Number of parallel workers"
+        "--workers", "-w", type=int, default=PHASE_WORKERS["translation"]["default"], help="Number of parallel workers"
     )
     parser.add_argument("--limit", "-l", type=int, help="Limit examples")
     parser.add_argument(
-        "--tower",
-        action="store_true",
-        help="Use TowerInstruct-Mistral-7B-v0.2 instead of Gemma3",
+        "--model",
+        "-m",
+        default="tower",
+        help="Model to use for translation (default: tower). Options: tower, gemma3, or custom model name",
     )
 
     args = parser.parse_args()
@@ -284,7 +300,13 @@ def main():
         return
 
     output_file = args.output or generate_output_filename(args.input_file)
-    model_name = get_ollama_name("towerinstruct" if args.tower else "gemma3")
+
+    from .config.datasets import TRANSLATION_MODELS
+
+    if args.model in TRANSLATION_MODELS:
+        model_name = TRANSLATION_MODELS[args.model]["ollama_name"]
+    else:
+        model_name = args.model
 
     _LOGGER.info(f"Processing: {args.input_file} -> {output_file}")
     _LOGGER.info(
