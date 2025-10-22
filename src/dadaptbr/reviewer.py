@@ -1,5 +1,4 @@
 import argparse
-import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -9,6 +8,7 @@ from tqdm import tqdm
 from .config.datasets import PHASE_WORKERS
 from .config.logging import setup_logger
 from .llm_client import get_ollama_name, init_ollama
+from .metadata_utils import create_review_metadata
 from .utils import (
     get_dataset_id,
     get_timestamp,
@@ -21,14 +21,9 @@ _LOGGER = setup_logger("reviewer", log_to_file=True, log_prefix="review")
 
 
 def load_review_prompt() -> str:
-    """Load the review prompt template."""
+    """Load review prompt."""
     prompt_path = Path(__file__).parent / "prompts" / "review.md"
-    try:
-        with open(prompt_path, encoding="utf-8") as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        _LOGGER.error(f"Review prompt not found at {prompt_path}")
-        raise
+    return prompt_path.read_text(encoding="utf-8").strip()
 
 
 def review_translation(client, model_name: str, prompt: str) -> str:
@@ -58,7 +53,7 @@ def format_review_prompt(
     prompt_template = load_review_prompt()
 
     # Format error spans as JSON
-    error_spans_json = json.dumps(error_spans, indent=2, ensure_ascii=False)
+    # error_spans_json = json.dumps(error_spans, indent=2, ensure_ascii=False)
 
     # Format the prompt template with the merged data
     formatted_prompt = prompt_template.format(
@@ -67,7 +62,6 @@ def format_review_prompt(
         score=score,
         alternative_translation=alternative_translation,
         alternative_score=alternative_score,
-        error_spans=error_spans_json,
     )
 
     return formatted_prompt
@@ -83,8 +77,8 @@ def create_review_entry(example: dict, review_result: dict, index: int) -> dict:
         "source": example.get("source", ""),
         "translation": example.get("translation", ""),
         "score": example.get("score", 0.0),
-        "alternative_translation": example.get("alternative_translation", ""),
-        "alternative_score": example.get("alternative_score", 0.0),
+        "alternative_translation": example.get("second_translation", ""),
+        "alternative_score": example.get("second_score", 0.0),
         "merged_from": example.get("merged_from", "unknown"),
         "reviewed_translation": reviewed_translation,
     }
@@ -98,8 +92,8 @@ def review_single_example(
         source = example.get("source", "")
         selected_translation = example.get("translation", "")
         selected_score = example.get("score", 0.0)
-        alternative_translation = example.get("alternative_translation", "")
-        alternative_score = example.get("alternative_score", 0.0)
+        alternative_translation = example.get("second_translation", "")
+        alternative_score = example.get("second_score", 0.0)
         error_spans = example.get("error_spans", [])
         merged_from = example.get("merged_from", "unknown")
 
@@ -180,11 +174,13 @@ def review_single_parallel(args):
     """Review a single example - used for parallel processing."""
     example, client, model_name, prompt_template, index = args
     start_time = time.time()
-    
+
     try:
-        review_result = review_single_example(example, client, model_name, prompt_template)
+        review_result = review_single_example(
+            example, client, model_name, prompt_template
+        )
         processing_time = time.time() - start_time
-        
+
         return {
             "success": True,
             "result": review_result,
@@ -211,26 +207,14 @@ def process_dataset(
     max_workers: int = None,
 ):
     """Process merged evaluation results and generate improved translations."""
-    import time
-
     start_time = time.time()
     _LOGGER.info(f"Reviewing merged translations from: {input_file}")
 
     # Load merged evaluation results
-    raw_data = load_json_file(input_file)
-    if not raw_data:
+    data, metadata = load_json_file(input_file)
+    if not data:
         _LOGGER.error("No data found in input file")
         return
-
-    # Handle new data structure with metadata
-    if isinstance(raw_data, dict) and "data" in raw_data:
-        data = raw_data["data"]
-        metadata = raw_data.get("metadata", {})
-        _LOGGER.info(f"Loaded merged evaluation data with metadata: {metadata}")
-    else:
-        # Handle old data structure (list of examples)
-        data = raw_data
-        metadata = {}
 
     # Apply limit if specified
     if limit:
@@ -252,10 +236,8 @@ def process_dataset(
     # Set default workers if not provided
     if max_workers is None:
         max_workers = PHASE_WORKERS["review"]["default"]
-    
-    # Limit workers to safe maximum
     max_workers = min(max_workers, PHASE_WORKERS["review"]["max"])
-    
+
     _LOGGER.info(f"Processing {len(data)} examples with {max_workers} workers...")
 
     # Prepare task arguments for parallel processing
@@ -265,7 +247,7 @@ def process_dataset(
     ]
 
     # Process examples in parallel
-    reviewed_data = [None] * len(data)  # Pre-allocate list for ordered results
+    reviewed_data = [None] * len(data)
     review_stats = {"total": len(data), "reviewed": 0, "skipped": 0, "errors": 0}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -280,11 +262,9 @@ def process_dataset(
         ):
             result = future.result()
             index = result["index"]
-            
-            # Create clean review entry
+
             review_entry = create_review_entry(data[index], result["result"], index)
-            
-            # Add error if there was one
+
             if result["result"].get("error"):
                 review_entry["error"] = result["result"].get("error")
                 review_stats["errors"] += 1
@@ -298,20 +278,10 @@ def process_dataset(
     # Save reviewed data with metadata
     _LOGGER.info("Saving review results...")
 
-    # Calculate review statistics using the new logic
-    reviewed_items = [
-        item for item in reviewed_data if item.get("reviewed_translation", "").strip()
-    ]
-    improvement_rate = (
-        review_stats["reviewed"] / len(reviewed_data) if reviewed_data else 0
-    )
-
     # Calculate total processing time
     total_processing_time = time.time() - start_time
 
-    # Create review metadata with analysis using consolidated approach
-    from .metadata_utils import create_review_metadata
-
+    # Create review metadata
     review_metadata = create_review_metadata(
         pipeline_id=get_timestamp(),
         dataset_id=get_dataset_id(input_file),
@@ -355,8 +325,9 @@ def main():
     # Generate output filename if not provided
     if not args.output:
         input_path = Path(args.input_file)
-        output_filename = f"{input_path.stem}_reviewed{input_path.suffix}"
-        output_file = input_path.parent / output_filename
+        output_file = (
+            input_path.parent / f"{input_path.stem}_reviewed{input_path.suffix}"
+        )
     else:
         output_file = args.output
 

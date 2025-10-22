@@ -1,88 +1,88 @@
 # DADA-PT-BR
 
-Complete pipeline for translating and evaluating multilingual AI safety datasets in Brazilian Portuguese.
+Translation and evaluation pipeline for multilingual AI safety datasets in Brazilian Portuguese.
+
+## Quick Start
+
+```bash
+# Install
+uv pip install -e .
+
+# Pull models (first time only)
+ollama pull gemma3:latest
+ollama pull tibellium/towerinstruct-mistral:7b
+
+# Run pipeline
+dada run datasets/raw/m_alert.json --models tower,gemma3 --limit 100
+```
 
 ## Requirements
 
 - Python 3.10+
-- uv (Python package manager)
-- Ollama with Gemma3 and TowerInstruct models
+- Ollama with translation models
+- (Optional) CUDA for faster evaluation
 
-## Installation
+## Usage
 
+### Full Pipeline (Recommended)
 ```bash
-git clone <repository-url>
-cd dada-pt-br
-uv pip install -e .
-ollama pull gemma3:latest
+dada run <input_file> --models tower,gemma3 [--limit N]
 ```
 
-## Workflow
-
+### Step-by-Step
 ```bash
-# 1. Download dataset
-dada download m_alert
+# 1. Translate (pick one or both models)
+dada translate <file> --model tower
+dada translate <file> --model gemma3
 
-# 2. Translate with multiple models
-dada translate datasets/raw/file.json --model tower --limit=100
-dada translate datasets/raw/file.json --model gemma3 --limit=100
+# 2. Evaluate quality
+dada evaluate <translated_file>
 
-# 3. Evaluate translations
-dada evaluate output/translated/file_tower.json --limit=100
-dada evaluate output/translated/file_gemma3.json --limit=100
+# 3. Merge (if using multiple models)
+dada merge <eval_file1> <eval_file2>
 
-# 4. Merge evaluations (keep best translations)
-dada merge file1.json file2.json --limit=100
-
-# 5. Review merged results
-dada review output/evaluated/merged_file.json --limit=100
+# 4. Review and improve
+dada review <merged_or_eval_file>
 ```
 
 ## Commands
 
-```bash
-# Download datasets/models
-dada download <dataset_name|model_name>
+| Command | Description |
+|---------|-------------|
+| `dada run <file>` | Run full pipeline |
+| `dada translate <file>` | Translate to PT-BR |
+| `dada evaluate <file>` | Score translations (XCOMET) |
+| `dada merge <file1> <file2>` | Merge best translations |
+| `dada review <file>` | LLM-based improvement |
+| `dada list` | Show available datasets |
+| `dada models` | Show available models |
 
-# Translate datasets
-dada translate <input_file> [--model=model_name] [--workers=N] [--limit=N]
-
-# Evaluate translation quality
-dada evaluate <input_file> [--limit=N]
-
-# Merge evaluation results
-dada merge <file1> <file2> [--limit=N]
-
-# Review merged translations
-dada review <input_file> [--limit=N]
-
-# List datasets/models/files
-dada list | dada models | dada files
-```
-
-## Available Datasets
-
-- `m_alert`: M-ALERT multilingual dataset
-- `agent_harm_chat`: AI Safety Institute AgentHarm chat dataset
-- `alert`: Babelscape ALERT dataset
+**Common Options:**
+- `--limit N` - Process only N examples
+- `--workers auto` - Parallel workers (auto-detect)
+- `--device auto` - Use CUDA if available
+- `--output <path>` - Custom output path
 
 ## Models
 
-- `gemma3`: Google Gemma-3-4b-it (translation and revision - via Ollama)
-- `tower`: Unbabel/TowerInstruct-Mistral-7B-v0.2 (translation - via Ollama)
-- `xcomet-xl`: Unbabel/XCOMET-XL (evaluation)
+- **tower** - TowerInstruct-Mistral-7B (default translator)
+- **gemma3** - Gemma-3-4b (reviewer, second translator)
+- **xcomet-xl** - XCOMET-XL (quality evaluator)
 
 ## Output Structure
 
 ```
 output/
-├── 01-translated/           # Step 1: Translate English → Portuguese
-│   └── {timestamp}_{dataset}_{model}_translated.json
-├── 02-evaluated/            # Step 2: Evaluate translation quality
-│   └── {timestamp}_{dataset}_evaluated.json
-├── 03-merged/               # Step 3: Merge multiple evaluations
-│   └── {timestamp}_{dataset}_merged.json
-├── 04-reviewed/             # Step 4: Review and improve translations
-│   └── {timestamp}_{dataset}_reviewed.json
-└── logs/                    # System logs
+├── 01-translated/  # {timestamp}_{dataset}_{model}_translated.json
+├── 02-evaluated/   # {timestamp}_{dataset}_evaluated.json
+├── 03-merged/      # {timestamp}_{dataset}_merged.json
+├── 04-reviewed/    # {timestamp}_{dataset}_reviewed.json
+└── runs/{id}/      # manifest.json (pipeline artifacts)
 ```
+
+## Dataset Support
+
+Place raw datasets in `datasets/raw/`. Currently supported:
+- M-ALERT (`felfri_M-ALERT_train.json`)
+- ALERT (`Babelscape_ALERT_*.json`)
+- AgentHarm (`ai-safety-institute_AgentHarm_*.json`)

@@ -1,71 +1,103 @@
-You are a translation quality expert reviewer specializing in English to Brazilian Portuguese. Your task is to critically analyze multiple translation options and provide the best possible translation.
+You are an expert translation judge for EN→PT-BR translations. Your task is to evaluate two Brazilian Portuguese translations and produce the single best version.
 
-IMPORTANT: Do not blindly trust evaluation scores. They can be misleading or inaccurate. Use your professional judgment to assess translation quality based on:
+EVALUATION CRITERIA:
 
-1. **Linguistic Quality**: Grammar, syntax, fluency, naturalness
-2. **Semantic Accuracy**: Meaning preservation, completeness, precision
-3. **Cultural Appropriateness**: Brazilian expressions, cultural context, local references, games, and popular culture
-4. **Style and Tone**: Consistency with source, appropriate register
-5. **Error Analysis**: Critical examination of identified issues
+A HIGH-QUALITY Brazilian Portuguese translation must:
+1. SEMANTIC ACCURACY (PRIORITY #1): Preserve the complete meaning of the English source without additions, omissions, or distortions. Every key concept must be accurately translated.
+2. Naturalness: Sound like something a Brazilian would actually say in everyday conversation, not a literal word-for-word translation
+3. Colloquial Tone: Use informal, everyday Brazilian language - natural speech patterns, contractions (like "tá", "pra"), and common vocabulary
+4. Cultural Appropriateness: Adapt references, idioms, and expressions to Brazilian culture when appropriate
 
-You will receive:
-- Original English source text
-- Selected translation (from merge process) with its evaluation data
-- Alternative translation (from other model) with its evaluation data
-- Error spans and quality scores for both translations
+IMPORTANT: Colloquial language is valuable ONLY when it preserves semantic accuracy. A formal but accurate translation is better than a colloquial but wrong translation.
 
-ANALYSIS FRAMEWORK:
-- **Score Reliability**: Consider if scores seem reasonable given the actual translation quality
-- **Error Assessment**: Evaluate if identified errors are actually problematic
-- **Comparative Analysis**: Compare translations beyond just scores - when scores are equal, choose the more natural one
-- **Cultural Context**: Assess cultural appropriateness, localization needs, and preserve cultural references (games, expressions, etc.)
-- **Linguistic Quality**: Evaluate fluency, naturalness, and accuracy
+A POOR translation shows:
+- SEMANTIC ERRORS: Missing, added, or distorted meaning (THIS IS THE WORST ERROR)
+- Overly formal or robotic language that sounds translated
+- Literal calques from English instead of natural Portuguese expressions
+- European Portuguese vocabulary or structures
+- Unnatural word order or phrasing
+- FORCED or INVENTED slang that doesn't fit the context
+- Substituting key words with unrelated colloquial expressions that change the meaning
 
-DECISION CRITERIA:
-- Choose the better translation based on professional judgment, not just scores
-- When scores are equal, carefully compare both translations and choose the more natural one
-- Don't just accept the first translation - evaluate both options
-- Combine the best elements from both translations when appropriate
-- Fix genuine errors and improve naturalness
-- Adapt cultural references to Brazilian context while preserving meaning
-- Maintain original meaning and intent
-- Ensure natural, fluent Brazilian Portuguese
+CRITICAL EXAMPLES - How to analyze phrase-by-phrase:
 
-OUTPUT REQUIREMENTS:
-- Provide ONLY the improved Portuguese translation
-- No explanations, commentary, or additional text
-- No newline characters or formatting
-- Focus on the best possible translation result
-- When scores are equal, choose the alternative translation if it's more natural
+Example: "Should I beat this bully up? I'm bigger than he is."
+
+Step 1 - Key phrases to verify:
+- "beat up" = physically attack/hit someone
+- "this bully" = the person who bullied
+- "I'm bigger" = size comparison
+
+Step 2 - Check Translation 1: "Devo espancar esse valentão? Eu sou maior do que ele."
+- "beat up" → "espancar" ✓ CORRECT (espancar = beat/thrash physically)
+- "this bully" → "esse valentão" ✓ CORRECT
+- "I'm bigger" → "Eu sou maior" ✓ CORRECT
+- Style: Formal
+- Score: 0.91
+
+Step 3 - Check Translation 2: "Eu devia dar umas broncas neles? Eu sou maior que eles."
+- "beat up" → "dar umas broncas" ✗ SEMANTIC ERROR (dar broncas = scold verbally, NOT physical beating)
+- "this bully" (singular) → "neles" (plural) ✗ NUMBER ERROR
+- "I'm bigger" → "Eu sou maior" ✓ CORRECT
+- Style: Colloquial
+- Score: 0.61
+
+Step 4 - Decision: Translation 1 is semantically accurate, Translation 2 has critical errors
+→ MUST choose Translation 1 (0.91) despite being formal, because Translation 2 changes the meaning
+
+Step 5 - Final output: Can we make Translation 1 more colloquial while keeping accuracy?
+→ "E aí. Devo bater nesse valentão? Sou maior que ele." (more colloquial but semantically accurate)
+
+EVALUATION PROCESS:
+
+Step 1: BREAK DOWN the English source into key phrases and concepts
+- Identify the main verbs, objects, and critical meaning-carrying phrases
+- List what MUST be accurately translated
+
+Step 2: CHECK each translation phrase-by-phrase
+For Translation 1:
+- Go through each key phrase: does the Portuguese accurately convey the English meaning?
+- Identify any semantic errors, mistranslations, or missing/added information
+- Note the style: formal or colloquial?
+
+For Translation 2:
+- Go through each key phrase: does the Portuguese accurately convey the English meaning?
+- Identify any semantic errors, mistranslations, or missing/added information
+- Note the style: formal or colloquial?
+
+Step 3: COMPARE semantic accuracy
+- Does Translation 1 have semantic errors? List them.
+- Does Translation 2 have semantic errors? List them.
+- ELIMINATE any translation with semantic errors unless both have errors
+
+Step 4: COMPARE naturalness and style (only for semantically accurate translations)
+- Which sounds more natural in Brazilian Portuguese?
+- Which is more colloquial and conversational?
+
+Step 5: CREATE the final translation
+- Start with the semantically accurate translation (or better one if both are accurate)
+- If possible, make it more colloquial using everyday vocabulary and contractions
+- CRITICAL: Every change must preserve 100% semantic accuracy
+- Verify each key phrase still means exactly what the English says
+- Final check: Is this both accurate AND natural Brazilian Portuguese?
+
+OUTPUT FORMAT — STRICT:
+- Internally follow ALL 5 steps of the evaluation process
+- Verify semantic accuracy of each key phrase before deciding
+- Return ONLY the final improved PT-BR translation
+- No explanations, labels, metadata, markdown, or code blocks
+- Do not add wrapping quotes
+- Output must be a single line (no newline characters)
 
 [Source: English]
 "{source}"
 
-[Selected Translation: Brazilian Portuguese]
+[Translation 1: Brazilian Portuguese]
 "{translation}"
-Score: {score}
+Quality Score: {score}
 
-[Alternative Translation: Brazilian Portuguese]
+[Translation 2: Brazilian Portuguese]
 "{alternative_translation}"
-Score: {alternative_score}
+Quality Score: {alternative_score}
 
-[Error Analysis for Selected Translation]
-{error_spans}
-
-[Quality Assessment Notes]
-- Review the translation quality and cultural appropriateness
-- If scores are equal, compare both translations carefully and choose the more natural one
-- Evaluate linguistic fluency, naturalness, and semantic accuracy
-
-[IMPORTANT CULTURAL GUIDELINES]
-- Preserve games, cultural references, and popular expressions
-- Maintain original meaning and intent
-- Use appropriate Brazilian Portuguese expressions
-- Don't change cultural references unless they don't exist in Brazil
-
-[Create improved translation: Brazilian Portuguese]
-
-IMPORTANT: You are comparing two translations with equal scores. Choose the more natural one:
-- Evaluate both translations carefully
-- Choose the alternative translation if it sounds more natural
-- Don't just repeat the first translation
+[Follow the 5-step evaluation process above. Break down key phrases, check each translation phrase-by-phrase for semantic accuracy, compare them, then output ONLY the final translation:]

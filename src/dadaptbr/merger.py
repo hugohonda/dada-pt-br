@@ -1,7 +1,9 @@
 import argparse
+import time
 
 from .config.datasets import DEFAULT_MODELS
 from .config.logging import setup_logger
+from .metadata_utils import create_merge_metadata
 from .utils import (
     generate_merge_filename,
     get_dataset_id,
@@ -17,31 +19,12 @@ def merge_evaluations(
     file1_path: str, file2_path: str, output_path: str, limit: int = None
 ):
     """Merge two evaluation files, keeping the best translation for each example."""
-    import time
-
     start_time = time.time()
     _LOGGER.info(f"Merging evaluations from: {file1_path} and {file2_path}")
 
     # Load both evaluation files
-    raw_data1 = load_json_file(file1_path)
-    raw_data2 = load_json_file(file2_path)
-
-    # Handle new data structure with metadata
-    if isinstance(raw_data1, dict) and "data" in raw_data1:
-        data1 = raw_data1["data"]
-        metadata1 = raw_data1.get("metadata", {})
-        _LOGGER.info(f"Loaded file1 with metadata: {metadata1}")
-    else:
-        data1 = raw_data1
-        metadata1 = {}
-
-    if isinstance(raw_data2, dict) and "data" in raw_data2:
-        data2 = raw_data2["data"]
-        metadata2 = raw_data2.get("metadata", {})
-        _LOGGER.info(f"Loaded file2 with metadata: {metadata2}")
-    else:
-        data2 = raw_data2
-        metadata2 = {}
+    data1, metadata1 = load_json_file(file1_path)
+    data2, metadata2 = load_json_file(file2_path)
 
     if limit:
         data1 = data1[:limit]
@@ -69,115 +52,40 @@ def merge_evaluations(
             _LOGGER.warning(f"Example {i}: Different indices, skipping")
             continue
 
-        # Compare scores to determine which translation to keep
+        # Compare scores and pick the best
         score1 = example1.get("score", 0.0)
         score2 = example2.get("score", 0.0)
+        model1 = metadata1.get("model", "unknown")
+        model2 = metadata2.get("model", "unknown")
 
-        # Extract model names from metadata
-        model1 = metadata1.get("source_metadata", {}).get("model_name", "unknown")
-        model2 = metadata2.get("source_metadata", {}).get("model_name", "unknown")
-
-        # Helper function to optimize error spans
-        def optimize_error_spans(error_spans):
-            """Keep only essential error span information."""
-            if not error_spans:
-                return []
-
-            optimized = []
-            for span in error_spans:
-                # Keep only essential fields: text, severity, and position
-                optimized_span = {
-                    "text": span.get("text", ""),
-                    "severity": span.get("severity", "minor"),
-                    "start": span.get("start", 0),
-                    "end": span.get("end", 0),
-                }
-                # Only include confidence if it's high (significant error)
-                if span.get("confidence", 0) > 0.5:
-                    optimized_span["confidence"] = round(span.get("confidence", 0), 2)
-                optimized.append(optimized_span)
-
-            return optimized
-
-        # Helper function to create optimized merged example
-        def create_optimized_example(
-            selected_example,
-            selected_model,
-            selected_score,
-            alternative_example,
-            alternative_model,
-            alternative_score,
-            merge_reason,
+        # Pick best translation (or tie-breaker)
+        if score1 > score2 or (
+            score1 == score2 and model1 == DEFAULT_MODELS["tie_breaker"]
         ):
-            """Create a clean merged example with only essential information."""
-            # Only include alternative information if scores are close (within 0.1)
-            score_diff = abs(selected_score - alternative_score)
-            include_alternative = score_diff < 0.1
-
-            result = {
-                # Core fields
-                "index": selected_example.get("index", 0),
-                "id": selected_example.get("id", 0),
-                "source": selected_example.get("source", ""),
-                "translation": selected_example.get("translation", ""),
-                "score": round(selected_score, 4),  # Round to 4 decimal places
-                # Merge metadata
-                "merged_from": merge_reason,
-                "original_model": selected_model,
-                # Optimized error spans (only from selected translation)
-                "error_spans": optimize_error_spans(
-                    selected_example.get("error_spans", [])
-                ),
-            }
-
-            # Only include alternative info if scores are close
-            if include_alternative:
-                result.update(
-                    {
-                        "alternative_score": round(alternative_score, 4),
-                        "alternative_translation": alternative_example.get(
-                            "translation", ""
-                        ),
-                        "alternative_model": alternative_model,
-                    }
-                )
-
-            # Only include system score if it's significantly different from main score
-            system_score = selected_example.get("system_score", selected_score)
-            if abs(system_score - selected_score) > 0.05:
-                result["system_score"] = round(system_score, 4)
-
-            return result
-
-        if score1 > score2:
-            # Model 1 has better score
-            best_example = create_optimized_example(
-                example1, model1, score1, example2, model2, score2, model1
-            )
-            stats["from_file1"] += 1
-        elif score2 > score1:
-            # Model 2 has better score
-            best_example = create_optimized_example(
-                example2, model2, score2, example1, model1, score1, model2
-            )
-            stats["from_file2"] += 1
+            first, second = example1, example2
+            first_model, second_model = model1, model2
+            first_score, second_score = score1, score2
+            stats["from_file1"] += 1 if score1 > score2 else 0
+            stats["tie"] += 1 if score1 == score2 else 0
         else:
-            # Tie - prefer configured tie-breaker model if available, otherwise prefer model1
-            tie_breaker = DEFAULT_MODELS["tie_breaker"]
-            if model1 == tie_breaker:
-                best_example = create_optimized_example(
-                    example1, model1, score1, example2, model2, score2, f"{model1}_tie"
-                )
-            elif model2 == tie_breaker:
-                best_example = create_optimized_example(
-                    example2, model2, score2, example1, model1, score1, f"{model2}_tie"
-                )
-            else:
-                # Neither is Tower, prefer model1
-                best_example = create_optimized_example(
-                    example1, model1, score1, example2, model2, score2, f"{model1}_tie"
-                )
-            stats["tie"] += 1
+            first, second = example2, example1
+            first_model, second_model = model2, model1
+            first_score, second_score = score2, score1
+            stats["from_file2"] += 1
+
+        # Create merged entry with both translations for review
+        best_example = {
+            "index": first.get("index", i),
+            "id": first.get("id", i),
+            "source": first.get("source", ""),
+            "translation": first.get("translation", ""),
+            "score": round(first_score, 4),
+            "merged_from": first_model,
+            "second_translation": second.get("translation", ""),
+            "second_score": round(second_score, 4),
+            "second_model": second_model,
+            "error_spans": first.get("error_spans", []),
+        }
 
         merged_data.append(best_example)
 
@@ -185,12 +93,10 @@ def merge_evaluations(
     total_processing_time = time.time() - start_time
 
     # Extract model names for analysis
-    model1 = metadata1.get("source_metadata", {}).get("model_name", "unknown")
-    model2 = metadata2.get("source_metadata", {}).get("model_name", "unknown")
+    model1 = metadata1.get("model_name", "unknown")
+    model2 = metadata2.get("model_name", "unknown")
 
-    # Create merge metadata with model analysis using consolidated approach
-    from .metadata_utils import create_merge_metadata
-
+    # Create merge metadata
     merge_metadata = create_merge_metadata(
         pipeline_id=get_timestamp(),
         dataset_id=get_dataset_id(file1_path),

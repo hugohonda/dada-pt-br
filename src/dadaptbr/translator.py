@@ -1,14 +1,16 @@
 import argparse
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from .config.datasets import FILE_PROCESSING, PHASE_WORKERS
+from .config.datasets import FILE_PROCESSING, PHASE_WORKERS, TRANSLATION_MODELS
 from .config.logging import setup_logger
 from .llm_client import get_ollama_name, init_ollama, translate_text
+from .metadata_utils import create_translation_metadata
 from .utils import (
     ensure_directory_exists,
     generate_output_filename,
@@ -23,14 +25,11 @@ _LOGGER = setup_logger("translator", log_to_file=True, log_prefix="translation")
 
 
 def load_prompt() -> str:
-    """Load the single standardized translation prompt."""
-    import os
+    """Load translation prompt."""
+    from pathlib import Path
 
-    # Get the directory where this module is located
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    prompt_file = os.path.join(current_dir, "prompts", "translation.md")
-    with open(prompt_file, encoding="utf-8") as f:
-        return f.read().strip()
+    prompt_file = Path(__file__).parent / "prompts" / "translation.md"
+    return prompt_file.read_text(encoding="utf-8").strip()
 
 
 def standardize_category_name(category: str) -> str:
@@ -46,8 +45,6 @@ def preprocess_text(text: str) -> str:
     """Standardized text preprocessing for all datasets."""
     if not text:
         return text
-
-    import re
 
     # Remove instruction markers (common across datasets)
     text = re.sub(
@@ -76,10 +73,7 @@ def ensure_standardized_output(translated: dict, original: dict) -> dict:
             break
 
     # Create clean output with only essential fields
-    clean_output = {
-        "en": en_text,
-        "pt-br": pt_text,
-    }
+    clean_output = {"en": en_text, "pt-br": pt_text}
 
     # Add category and id from original
     if "category" in original:
@@ -110,10 +104,7 @@ def translate_single(args):
         pt_text = translate_text(en_text, client, model_name, prompt_template)
 
         # Create standardized output
-        translated = {
-            "en": en_text,
-            "pt-br": pt_text,
-        }
+        translated = {"en": en_text, "pt-br": pt_text}
 
         # Add category and id from original
         if "category" in example:
@@ -163,7 +154,7 @@ def process_dataset(
         ollama_model_name = get_ollama_name(model_name)
         client = init_ollama(ollama_model_name)
 
-        data = load_json_file(input_file)
+        data, _ = load_json_file(input_file)
         if not data:
             _LOGGER.error("Empty dataset")
             return
@@ -182,7 +173,7 @@ def process_dataset(
         # Check for existing progress
         processed_count = 0
         if os.path.exists(output_file):
-            existing_data = load_json_file(output_file)
+            existing_data, _ = load_json_file(output_file)
             processed_count = len(existing_data)
             _LOGGER.info(f"Resuming from {processed_count} examples")
 
@@ -220,9 +211,6 @@ def process_dataset(
                         f"Translation completed in {result['processing_time']:.2f}s"
                     )
                 else:
-                    _LOGGER.error(f"Translation failed: {result['error']}")
-
-                if not result["success"]:
                     _LOGGER.error(
                         f"Translation failed for example {result['index']}: {result['error']}"
                     )
@@ -232,10 +220,8 @@ def process_dataset(
         translated_data = []
 
         # Load existing data if resuming
-        if processed_count > 0:
-            translated_data = (
-                load_json_file(output_file) if os.path.exists(output_file) else []
-            )
+        if processed_count > 0 and os.path.exists(output_file):
+            translated_data, _ = load_json_file(output_file)
 
         # Add new results in order
         for result in results:
@@ -245,9 +231,7 @@ def process_dataset(
         # Calculate total processing time
         total_processing_time = time.time() - total_start_time
 
-        # Add comprehensive metadata to the data using consolidated approach
-        from .metadata_utils import create_translation_metadata
-
+        # Add comprehensive metadata to the data
         metadata = create_translation_metadata(
             pipeline_id=pipeline_id,
             dataset_id=dataset_id,
@@ -268,8 +252,6 @@ def process_dataset(
     finally:
         _LOGGER.info("Translation process completed")
 
-        # Ollama handles memory management automatically
-
 
 def main():
     """Main CLI entry point."""
@@ -283,7 +265,11 @@ def main():
     parser.add_argument("input_file", help="Input JSON file to translate")
     parser.add_argument("--output", "-o", help="Output JSON file")
     parser.add_argument(
-        "--workers", "-w", type=int, default=PHASE_WORKERS["translation"]["default"], help="Number of parallel workers"
+        "--workers",
+        "-w",
+        type=int,
+        default=PHASE_WORKERS["translation"]["default"],
+        help="Number of parallel workers",
     )
     parser.add_argument("--limit", "-l", type=int, help="Limit examples")
     parser.add_argument(
@@ -300,8 +286,6 @@ def main():
         return
 
     output_file = args.output or generate_output_filename(args.input_file)
-
-    from .config.datasets import TRANSLATION_MODELS
 
     if args.model in TRANSLATION_MODELS:
         model_name = TRANSLATION_MODELS[args.model]["ollama_name"]

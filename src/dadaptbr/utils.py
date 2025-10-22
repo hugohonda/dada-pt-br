@@ -1,13 +1,14 @@
 import json
 import os
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 def get_timestamp() -> str:
-    """Get standardized timestamp for filenames."""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    """Get standardized UTC timestamp for filenames."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
 
 
 def ensure_directory_exists(directory: str) -> None:
@@ -15,17 +16,74 @@ def ensure_directory_exists(directory: str) -> None:
     os.makedirs(directory, exist_ok=True)
 
 
-def load_json_file(file_path: str) -> list[dict[str, Any]]:
-    """Load JSON file and return data."""
+def load_json_file(file_path: str) -> tuple[list[dict], dict]:
+    """Load JSON file and return (data, metadata) tuple.
+    Handles both old format (list) and new format (dict with data/metadata).
+    """
     with open(file_path, encoding="utf-8") as f:
-        return json.load(f)
+        raw = json.load(f)
+
+    if isinstance(raw, dict) and "data" in raw:
+        return raw["data"], raw.get("metadata", {})
+    return raw, {}
+
+
+def resolve_dataset_file(input_path_or_key: str) -> str:
+    """Resolve dataset file path with minimal logic.
+
+    1) If the given path exists, return it.
+    2) Otherwise, treat input as a dataset key (e.g., 'm_alert') and
+       look for a known filename in datasets/raw/ via FILENAME_MAPPINGS.
+    3) If none found, fallback to any file in datasets/raw/ that contains the key.
+    """
+    if os.path.exists(input_path_or_key):
+        return input_path_or_key
+
+    key = os.path.splitext(os.path.basename(input_path_or_key))[0].lower()
+    raw_dir = os.path.join("datasets", "raw")
+    if not os.path.isdir(raw_dir):
+        raise FileNotFoundError(
+            f"Raw datasets directory not found: {raw_dir}. Please place files there or pass a file path."
+        )
+
+    from .config.datasets import FILENAME_MAPPINGS
+
+    # Priority: explicit mapping entries matching the dataset key
+    for fname, did in FILENAME_MAPPINGS.items():
+        if did.lower() == key:
+            full = os.path.join(raw_dir, fname)
+            if os.path.exists(full):
+                return full
+
+    # Fallback: loose match by filename containing the key
+    for fname in os.listdir(raw_dir):
+        if key in fname.lower():
+            full = os.path.join(raw_dir, fname)
+            if os.path.exists(full):
+                return full
+
+    raise FileNotFoundError(
+        f"Could not resolve dataset '{input_path_or_key}'. Pass an existing file path or a known dataset key."
+    )
 
 
 def save_json_file(data: Any, file_path: str, indent: int = 2) -> None:
-    """Save data to JSON file."""
-    ensure_directory_exists(os.path.dirname(file_path))
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=indent)
+    """Atomically save data to JSON file (write temp + fsync + replace)."""
+    directory = os.path.dirname(file_path)
+    ensure_directory_exists(directory)
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", dir=directory, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, file_path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def extract_texts(example: dict[str, Any]) -> tuple[str, str]:
@@ -44,152 +102,139 @@ def extract_texts(example: dict[str, Any]) -> tuple[str, str]:
 
 
 def get_dataset_id(input_file: str) -> str:
-    """Extract dataset ID from input filename, mapping to config keys."""
+    """Extract dataset ID from filename."""
     import re
 
-    from .config.datasets import DATASETS, FILENAME_MAPPINGS, FILENAME_PATTERNS
+    from .config.datasets import FILENAME_MAPPINGS
 
     filename = os.path.basename(input_file)
 
-    # Check direct mapping first
+    # Direct mapping
     if filename in FILENAME_MAPPINGS:
         return FILENAME_MAPPINGS[filename]
 
-    # Check for new simplified pattern: {pipeline_id}_{dataset_id}.json
-    # Extract dataset_id from pattern like "20251011_195003_m_alert.json"
-    pattern = FILENAME_PATTERNS["pipeline_dataset"]
-    match = re.match(pattern, filename)
+    # Pattern: {timestamp}_{dataset_id}_{model}_{phase}.json
+    match = re.search(r"\d{8}_\d{6}Z_([a-z_]+)", filename)
     if match:
         return match.group(1)
 
-    # Fallback: try to match with config values
-    for config_key, config_value in DATASETS.items():
-        if config_value.replace("/", "_").replace(":", "_") in filename:
-            return config_key
-
-    # Last resort: use filename without extensions
+    # Fallback: clean filename
     return (
         filename.replace(".json", "").replace("_train", "").replace("_test", "").lower()
     )
 
 
-def get_model_key_from_name(model_name: str) -> str:
-    """Convert model name to config key."""
-    from .config.datasets import MODEL_NAME_MAPPINGS
-    
-    # Check direct mapping first
-    if model_name in MODEL_NAME_MAPPINGS:
-        return MODEL_NAME_MAPPINGS[model_name]
-    
-    # Check partial matches
-    for key, value in MODEL_NAME_MAPPINGS.items():
-        if key in model_name:
-            return value
-    
-    # Fallback: return model_name as-is
-    return model_name
+def get_model_key(model_name: str) -> str:
+    """Simplify model name to key (gemma3:latest -> gemma3)."""
+    if not model_name:
+        return "unknown"
+    # Extract base name before : or /
+    name = model_name.split(":")[0].split("/")[-1]
+    return name.replace("towerinstruct-mistral", "tower").replace("gemma3", "gemma3")
 
 
-def get_output_dir_name(output_type: str) -> str:
-    """Get the numbered output directory name for a given operation type."""
-    dir_mapping = {
-        "translated": "01-translated",
-        "evaluated": "02-evaluated", 
-        "merged": "03-merged",
-        "reviewed": "04-reviewed"
-    }
-    return dir_mapping.get(output_type, output_type)
+OUTPUT_DIRS = {
+    "translated": "01-translated",
+    "evaluated": "02-evaluated",
+    "merged": "03-merged",
+    "reviewed": "04-reviewed",
+}
 
 
 def generate_output_filename(
     input_file: str,
-    output_type: str = "translated",
+    phase: str,
     model_name: str = None,
     dataset_id: str = None,
     pipeline_id: str = None,
 ) -> str:
-    """Generate output filename with clean, consistent pattern."""
-    if dataset_id is None:
-        dataset_id = get_dataset_id(input_file)
+    """Generate output filename: {pipeline_id}_{dataset}_{model?}_{phase}.json"""
+    dataset_id = dataset_id or get_dataset_id(input_file)
+    pipeline_id = pipeline_id or get_timestamp()
+    model_key = get_model_key(model_name) if model_name else None
 
-    # Use provided pipeline_id or generate new one
-    if pipeline_id is None:
-        pipeline_id = get_timestamp()
-
-    # Clean pattern: {timestamp}_{dataset}_{model}_{operation}.json
-    output_dir = f"output/{get_output_dir_name(output_type)}"
-
-    if model_name:
-        model_key = get_model_key_from_name(model_name)
-        filename = f"{pipeline_id}_{dataset_id}_{model_key}_{output_type}.json"
-    else:
-        filename = f"{pipeline_id}_{dataset_id}_{output_type}.json"
-
+    output_dir = f"output/{OUTPUT_DIRS.get(phase, phase)}"
     ensure_directory_exists(output_dir)
+
+    parts = [pipeline_id, dataset_id]
+    if model_key:
+        parts.append(model_key)
+    parts.append(phase)
+
+    filename = "_".join(parts) + ".json"
     return os.path.join(output_dir, filename)
 
 
 def extract_pipeline_id(filename: str) -> str:
-    """Extract pipeline_id from filename pattern: {pipeline_id}_{dataset_id}.json"""
+    """Extract pipeline_id from filename (first part before _)."""
     import re
 
-    # Pattern: pipelineid_dataset.json
-    pattern = r"^(\d{8}_\d{6})_[a-z_]+\.json$"
-    match = re.match(pattern, os.path.basename(filename))
-    if match:
-        return match.group(1)
-    return None
+    match = re.match(r"^(\d{8}_\d{6}Z)", os.path.basename(filename))
+    return match.group(1) if match else get_timestamp()
 
 
-def generate_evaluation_filename(input_file: str, model_name: str = None) -> str:
-    """Generate evaluation output filename."""
-    return generate_output_filename(input_file, "evaluated", model_name)
+def generate_evaluation_filename(f, m=None):
+    return generate_output_filename(f, "evaluated", m)
 
 
-def generate_review_filename(input_file: str, model_name: str = None) -> str:
-    """Generate review output filename."""
-    return generate_output_filename(input_file, "reviewed", model_name)
+def generate_review_filename(f, m=None):
+    return generate_output_filename(f, "reviewed", m)
 
 
 def generate_merge_filename(file1: str, file2: str) -> str:
-    """Generate output filename for merged evaluations."""
-    # Extract dataset name from first file
-    file1_name = Path(file1).stem
-    if "_" in file1_name:
-        # Extract dataset from pattern: {timestamp}_{dataset}_{model}_{operation}
-        parts = file1_name.split("_")
-        if len(parts) >= 2:
-            dataset_name = parts[1]  # Second part is dataset
-        else:
-            dataset_name = "merged"
-    else:
-        dataset_name = "merged"
-
-    timestamp = get_timestamp()
-    output_dir = f"output/{get_output_dir_name('merged')}"
-    ensure_directory_exists(output_dir)
-    return f"{output_dir}/{timestamp}_{dataset_name}_merged.json"
+    """Generate merged output filename."""
+    dataset_id = get_dataset_id(file1)
+    pipeline_id = extract_pipeline_id(file1)
+    return generate_output_filename(file1, "merged", None, dataset_id, pipeline_id)
 
 
-def generate_report_filename(
+# --------- Runtime helpers for pipeline orchestration ---------
+
+
+def resolve_workers(workers: int | str, phase: str) -> int:
+    """Resolve workers value; supports 'auto' and clamps by phase caps."""
+    from .config.datasets import PHASE_WORKERS
+
+    if isinstance(workers, str) and workers == "auto":
+        cpu = os.cpu_count() or 4
+        auto = min(32, max(4, cpu * 2))
+        return min(auto, PHASE_WORKERS.get(phase, {}).get("max", auto))
+    return int(workers)
+
+
+def resolve_device(device: str) -> str:
+    """Resolve 'auto' device to cuda if available else cpu."""
+    if device != "auto":
+        return device
+    try:
+        import torch  # noqa: WPS433
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def write_run_manifest(
+    pipeline_id: str,
     dataset_id: str,
-    operation: str,
-    model_name: str = None,
-    extension: str = "json",
-    pipeline_id: str = None,
+    config: dict[str, Any],
+    artifacts: list[dict[str, Any]],
 ) -> str:
-    """Generate report filename with simple, consistent logic."""
-    if pipeline_id is None:
-        pipeline_id = get_timestamp()
+    """Write a compact manifest for the full pipeline run and return its path."""
+    run_dir = Path("output") / "runs" / pipeline_id
+    ensure_directory_exists(str(run_dir))
+    manifest_path = run_dir / "manifest.json"
 
-    # Reports go in main output folder
-    report_dir = "output"
-    ensure_directory_exists(report_dir)
+    manifest = {
+        "pipeline_id": pipeline_id,
+        "dataset_id": dataset_id,
+        "created_at": get_timestamp(),
+        "config": config,
+        "artifacts": artifacts,
+    }
 
-    # Simple filename: pipeline_id + dataset_id + operation (same pattern as data files)
-    filename = f"{pipeline_id}_{dataset_id}_{operation}.{extension}"
-
-    return os.path.join(report_dir, filename)
+    save_json_file(manifest, str(manifest_path))
+    return str(manifest_path)
 
 
 # Removed unused functions: generate_log_filename, generate_visualization_path

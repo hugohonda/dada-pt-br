@@ -33,12 +33,10 @@ TRANSLATION_MODELS = {
     "gemma3": {
         "ollama_name": "gemma3:latest",
         "display_name": "Gemma3",
-        "default": True,
     },
     "tower": {
         "ollama_name": "tibellium/towerinstruct-mistral:7b",
-        "display_name": "TowerInstruct-Mistral",
-        "default": False,
+        "display_name": "TowerInstruct",
     },
 }
 
@@ -48,93 +46,21 @@ LLM_DEFAULT_PARAMS = {
     "max_tokens": 2048,
 }
 
-# Model name to key mappings
-MODEL_NAME_MAPPINGS = {
-    "gemma3": "gemma3",
-    "tower": "tower",
-    "tibellium/towerinstruct-mistral:7b": "tower",
-    "gemma3:latest": "gemma3",
-}
-
-# Default model preferences
 DEFAULT_MODELS = {
     "translation": "tower",
     "review": "gemma3",
     "tie_breaker": "tower",
 }
 
-# Regex patterns for filename parsing
-FILENAME_PATTERNS = {
-    "pipeline_dataset": r"^\d{8}_\d{6}_([a-z_]+)\.json$",
-}
-
-# File processing constants
+# Processing defaults
 FILE_PROCESSING = {
-    "default_workers": 8,
-    "max_workers": 16,
-    "default_batch_size": 16,
     "default_device": "cpu",
-    "default_limit": None,
+    "default_batch_size": 8,
 }
 
-# Phase-specific worker configurations
 PHASE_WORKERS = {
-    "translation": {
-        "default": 8,
-        "max": 16,
-        "safe_parallel": True,  # Ollama API calls are safe to parallelize
-    },
-    "evaluation": {
-        "default": 4,
-        "max": 8,
-        "safe_parallel": False,  # XCOMET model loading is not thread-safe
-    },
-    "review": {
-        "default": 8,
-        "max": 16,
-        "safe_parallel": True,  # Ollama API calls are safe to parallelize
-    },
-    "merge": {
-        "default": 1,
-        "max": 1,
-        "safe_parallel": False,  # Single operation, no parallelization needed
-    },
-}
-
-DATASET_CATEGORIES = {
-    "m_alert": {
-        "crime_injury": "Crime/Lesão",
-        "hate_other": "Ódio/Outros",
-        "hate_ethnic": "Ódio/Étnico",
-        "crime_theft": "Crime/Roubo",
-        "crime_propaganda": "Crime/Propaganda",
-        "hate_women": "Ódio/Mulheres",
-        "substance_drug": "Substância/Drogas",
-        "substance_other": "Substância/Outros",
-        "weapon_other": "Arma/Outros",
-        "crime_cyber": "Crime/Cibernético",
-        "hate_religion": "Ódio/Religião",
-        "hate_lgbtq+": "Ódio/LGBTQ+",
-        "sex_harrasment": "Sexo/Assédio",
-        "sex_other": "Sexo/Outros",
-        "crime_privacy": "Crime/Privacidade",
-        "substance_alcohol": "Substância/Álcool",
-        "crime_other": "Crime/Outros",
-        "crime_tax": "Crime/Impostos",
-        "substance_cannabis": "Substância/Cannabis",
-        "self_harm_thin": "Auto-dano/Anorexia",
-        "weapon_chemical": "Arma/Química",
-        "weapon_biological": "Arma/Biológica",
-        "crime_kidnapp": "Crime/Sequestro",
-        "self_harm_suicide": "Auto-dano/Suicídio",
-        "hate_body": "Ódio/Corpo",
-        "weapon_radioactive": "Arma/Radioativa",
-        "sex_porn": "Sexo/Pornografia",
-        "self_harm_other": "Auto-dano/Outros",
-        "hate_disabled": "Ódio/Deficientes",
-        "weapon_firearm": "Arma/Arma de fogo",
-        "substance_tobacco": "Substância/Tabaco",
-        "hate_poor": "Ódio/Pobres",
-        "unknown": "Desconhecido",
-    },
+    "translation": {"default": 8, "max": 16},
+    "evaluation": {"default": 1, "max": 1},
+    "review": {"default": 8, "max": 16},
+    "merge": {"default": 1, "max": 1},
 }

@@ -50,15 +50,12 @@ def init_ollama(model_name: str = None):
 def translate_text(text: str, client, model_name: str, prompt: str) -> str:
     """Translate text using specified model with config parameters."""
     try:
-        # Format the prompt with the actual text to translate
         formatted_prompt = prompt.format(text=text)
-
         response = client.chat(
             model=model_name,
             messages=[{"role": "user", "content": formatted_prompt}],
             options=LLM_DEFAULT_PARAMS,
         )
-
         translation = response["message"]["content"].strip()
 
         # Clean up the response
