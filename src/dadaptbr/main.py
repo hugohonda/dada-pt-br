@@ -53,11 +53,16 @@ def list_files():
 
 
 def handle_download(args):
-    """Download functionality removed - datasets should be placed in datasets/raw/"""
-    print("Download functionality removed.")
-    print("Please place your datasets in the datasets/raw/ directory.")
-    print("Available datasets:")
-    list_datasets()
+    """Download dataset from Hugging Face"""
+    from .downloader import download_dataset
+
+    try:
+        filepath = download_dataset(args.target)
+        print(f"Dataset downloaded successfully: {filepath}")
+    except Exception as e:
+        print(f"Download failed: {e}")
+        print("Available datasets:")
+        list_datasets()
 
 
 def handle_translate(args):

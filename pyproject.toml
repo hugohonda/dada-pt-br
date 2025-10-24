@@ -9,13 +9,52 @@ description = "DADA-PT-BR"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    # Core dependencies (always needed)
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.64.0",
+    "ollama>=0.6.0",
+]
+
+[project.optional-dependencies]
+# Lightweight phase - only basic functionality
+light = [
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.64.0",
+]
+
+# Translation phase - needs Ollama but not heavy ML libs
+translate = [
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.64.0",
+    "ollama>=0.6.0",
+]
+
+# Evaluation phase - needs heavy ML libraries
+evaluate = [
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.64.0",
     "transformers>=4.57.0",
     "torch>=2.0.0",
     "unbabel-comet>=2.2.7",
     "numpy>=1.21.0",
-    "ollama>=0.6.0",
+]
+
+# Review phase - lightweight like translate
+review = [
     "python-dotenv>=1.1.1",
     "tqdm>=4.64.0",
+    "ollama>=0.6.0",
+]
+
+# Full pipeline - all dependencies
+full = [
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.64.0",
+    "ollama>=0.6.0",
+    "transformers>=4.57.0",
+    "torch>=2.0.0",
+    "unbabel-comet>=2.2.7",
+    "numpy>=1.21.0",
 ]
 
 [project.scripts]

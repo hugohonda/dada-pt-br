@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  dada:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./datasets:/app/datasets
+      - ./final-data:/app/final-data
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--help"]
+    profiles:
+      - cpu
+
+  dada-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./datasets:/app/datasets
+      - ./final-data:/app/final-data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["--help"]
+    profiles:
+      - gpu
