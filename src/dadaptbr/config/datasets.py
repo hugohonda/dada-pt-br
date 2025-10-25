@@ -35,8 +35,9 @@ TRANSLATION_MODELS = {
         "display_name": "Gemma3",
     },
     "tower": {
-        "ollama_name": "tibellium/towerinstruct-mistral:7b",
+        "ollama_name": "thinkverse/towerinstruct:latest",
         "display_name": "TowerInstruct",
+        "default": True,
     },
 }
 

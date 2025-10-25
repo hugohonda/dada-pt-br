@@ -28,8 +28,11 @@ def get_ollama_name(model_key: str = None) -> str:
 
 def init_ollama(model_name: str = None):
     """Initialize Ollama client and validate model."""
-    client = ollama.Client()
-    _LOGGER.info("Connected to Ollama")
+    # Use host.docker.internal for Docker containers, localhost for local execution
+    import os
+    host = os.getenv("OLLAMA_HOST", "localhost")
+    client = ollama.Client(host=host)
+    _LOGGER.info(f"Connected to Ollama at {host}")
 
     # Use config if no model specified
     if not model_name:
