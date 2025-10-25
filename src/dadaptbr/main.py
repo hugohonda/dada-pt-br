@@ -201,6 +201,24 @@ def handle_run(args):
     print(f"Manifest: {manifest_path}")
 
 
+def handle_agentic(args):
+    """Handle agentic safety framework commands."""
+    import asyncio
+
+    from .agentic_cli import run_benchmark, test_agent
+
+    if args.subcommand == "test":
+        if not args.task:
+            print("Task is required for test subcommand")
+            return
+        asyncio.run(test_agent(args.task, args.model, args.verbose))
+    elif args.subcommand == "benchmark":
+        if not args.tasks_file:
+            print("Tasks file is required for benchmark subcommand")
+            return
+        asyncio.run(run_benchmark(args.tasks_file, args.model, args.output))
+
+
 def add_common_args(
     parser, include_workers=False, include_device=False, include_model=False
 ):
@@ -288,6 +306,16 @@ def main():
     p_run.add_argument("--pipeline-id", help="Pipeline ID")
     add_common_args(p_run, include_workers=True, include_device=True)
     p_run.set_defaults(func=handle_run)
+
+    # agentic commands
+    p_agentic = subparsers.add_parser("agentic", help="Agentic Safety Framework commands")
+    p_agentic.add_argument("subcommand", choices=["test", "benchmark"], help="Agentic subcommand")
+    p_agentic.add_argument("--task", help="Task to test (for test subcommand)")
+    p_agentic.add_argument("--tasks-file", help="JSON file with tasks (for benchmark subcommand)")
+    p_agentic.add_argument("--model", default="gpt-4o", help="Model to use")
+    p_agentic.add_argument("--output", "-o", help="Output file for results")
+    p_agentic.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    p_agentic.set_defaults(func=handle_agentic)
 
     args = parser.parse_args()
     # Normalize workers and device centrally
