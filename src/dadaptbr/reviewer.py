@@ -21,8 +21,8 @@ _LOGGER = setup_logger("reviewer", log_to_file=True, log_prefix="review")
 
 
 def load_review_prompt() -> str:
-    """Load review prompt."""
-    prompt_path = Path(__file__).parent / "prompts" / "review.md"
+    """Load cultural review prompt."""
+    prompt_path = Path(__file__).parent / "prompts" / "cultural_review.md"
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
@@ -41,133 +41,76 @@ def review_translation(client, model_name: str, prompt: str) -> str:
 
 
 def format_review_prompt(
-    source: str,
-    translation: str,
-    score: float,
-    alternative_translation: str,
-    alternative_score: float,
-    error_spans: list[dict],
+    source: str, translation: str, needs_review: list[dict]
 ) -> str:
-    """Format the review prompt with merged data including both translations."""
-    # Load the review prompt template
-    prompt_template = load_review_prompt()
-
-    # Format error spans as JSON
-    # error_spans_json = json.dumps(error_spans, indent=2, ensure_ascii=False)
-
-    # Format the prompt template with the merged data
-    formatted_prompt = prompt_template.format(
-        source=source,
-        translation=translation,
-        score=score,
-        alternative_translation=alternative_translation,
-        alternative_score=alternative_score,
+    """Format cultural review prompt."""
+    entities_list = (
+        "\n".join(
+            [
+                f"- {ent['text']} ({ent['type']}): {ent['reason']}"
+                for ent in needs_review
+            ]
+        )
+        if needs_review
+        else "(None)"
     )
 
-    return formatted_prompt
+    return load_review_prompt().format(
+        source=source,
+        translation=translation,
+        entities_list=entities_list,
+    )
 
 
 def create_review_entry(example: dict, review_result: dict, index: int) -> dict:
-    """Create a clean review entry from example and review result."""
-    reviewed_translation = review_result.get("improved_translation", "")
-
+    """Create review entry from example and result."""
     return {
         "index": example.get("index", index),
         "id": example.get("id", index),
         "source": example.get("source", ""),
         "translation": example.get("translation", ""),
-        "score": example.get("score", 0.0),
-        "alternative_translation": example.get("second_translation", ""),
-        "alternative_score": example.get("second_score", 0.0),
-        "merged_from": example.get("merged_from", "unknown"),
-        "reviewed_translation": reviewed_translation,
+        "reviewed_translation": review_result.get("improved_translation", ""),
+        "entities_adapted": review_result.get("entities_adapted", []),
     }
 
 
 def review_single_example(
     example: dict, client, model_name: str, prompt_template: str
 ) -> dict:
-    """Review a single example from merged data and propose a better translation."""
+    """Review example for cultural adaptation."""
     try:
-        source = example.get("source", "")
-        selected_translation = example.get("translation", "")
-        selected_score = example.get("score", 0.0)
-        alternative_translation = example.get("second_translation", "")
-        alternative_score = example.get("second_score", 0.0)
-        error_spans = example.get("error_spans", [])
-        merged_from = example.get("merged_from", "unknown")
+        analysis = example.get("analysis", {})
+        needs_review = analysis.get("ner_accuracy", {}).get("needs_review", [])
 
-        # Filter out low confidence error spans (confidence < 0.5)
-        filtered_error_spans = []
-        for span in error_spans:
-            confidence = span.get("confidence", 0.0)
-            if confidence >= 0.5:
-                filtered_error_spans.append(span)
+        if not needs_review:
+            return {"improved_translation": ""}
 
-        error_spans = filtered_error_spans
-
-        # Smart review decision: always review if there's an alternative translation
-        # or if there are significant errors, even with high scores
-        should_skip = (
-            selected_score > 0.99
-            and not error_spans
-            and not alternative_translation.strip()
+        prompt = format_review_prompt(
+            example.get("source", ""), example.get("translation", ""), needs_review
         )
 
-        if should_skip:
-            return {
-                "improved_translation": "",  # Empty means not reviewed
-            }
+        result = review_translation(client, model_name, prompt).strip().strip('"')
 
-        # Format the review prompt with both translations
-        review_prompt = format_review_prompt(
-            source=source,
-            translation=selected_translation,
-            score=selected_score,
-            alternative_translation=alternative_translation,
-            alternative_score=alternative_score,
-            error_spans=error_spans,
-        )
+        # Remove any explanations/markdown that might have been added
+        if "\n" in result:
+            result = result.split("\n")[0].strip()
+        if "**" in result or "*" in result:
+            # Take first line before any markdown
+            result = result.split("**")[0].split("*")[0].strip()
 
-        # Get the improved translation using a custom review function
-        improved_translation = review_translation(
-            client=client, model_name=model_name, prompt=review_prompt
-        )
-
-        # Extract the improved translation from the response
-        # The model should return just the improved translation
-        improved_translation = improved_translation.strip()
-
-        # Remove quotes if present
-        if improved_translation.startswith('"') and improved_translation.endswith('"'):
-            improved_translation = improved_translation[1:-1]
-
-        # If the model returned the English text instead of Portuguese, skip this example
-        if improved_translation == source:
-            return {
-                "reviewed": False,
-                "reason": "Model returned English text instead of Portuguese translation",
-                "original_score": selected_score,
-            }
+        if result == example.get("source", ""):
+            return {"reviewed": False, "reason": "Returned English"}
 
         return {
             "reviewed": True,
-            "original_translation": selected_translation,
-            "improved_translation": improved_translation,
-            "original_score": selected_score,
-            "alternative_translation": alternative_translation,
-            "alternative_score": alternative_score,
-            "merged_from": merged_from,
-            "error_spans": error_spans,
+            "original_translation": example.get("translation", ""),
+            "improved_translation": result,
+            "entities_adapted": [e["text"] for e in needs_review],
         }
 
     except Exception as e:
-        _LOGGER.error(f"Error reviewing example {example.get('id', 'unknown')}: {e}")
-        return {
-            "reviewed": False,
-            "error": str(e),
-            "original_score": example.get("score", 0.0),
-        }
+        _LOGGER.error(f"Error reviewing {example.get('id', 'unknown')}: {e}")
+        return {"reviewed": False, "error": str(e)}
 
 
 def review_single_parallel(args):
@@ -206,9 +149,9 @@ def process_dataset(
     limit: int | None = None,
     max_workers: int = None,
 ):
-    """Process merged evaluation results and generate improved translations."""
+    """Process analyzer results and generate culturally adapted translations."""
     start_time = time.time()
-    _LOGGER.info(f"Reviewing merged translations from: {input_file}")
+    _LOGGER.info(f"Reviewing analyzed translations from: {input_file}")
 
     # Load merged evaluation results
     data, metadata = load_json_file(input_file)

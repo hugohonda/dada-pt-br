@@ -137,7 +137,8 @@ OUTPUT_DIRS = {
     "translated": "01-translated",
     "evaluated": "02-evaluated",
     "merged": "03-merged",
-    "reviewed": "04-reviewed",
+    "analyzed": "04-analyzed",
+    "reviewed": "05-reviewed",
 }
 
 
@@ -179,6 +180,10 @@ def generate_evaluation_filename(f, m=None):
 
 def generate_review_filename(f, m=None):
     return generate_output_filename(f, "reviewed", m)
+
+
+def generate_analysis_filename(f, m=None):
+    return generate_output_filename(f, "analyzed", m)
 
 
 def generate_merge_filename(file1: str, file2: str) -> str:

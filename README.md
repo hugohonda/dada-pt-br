@@ -11,7 +11,11 @@ uv pip install -e ".[translate]"  # + translate, review
 uv pip install -e ".[evaluate]"   # + evaluate (needs GPU/CPU)
 uv pip install -e ".[full]"       # All phases
 
-# Pull models (first time only)
+# Setup analyzer models (first time only)
+dada setup
+# Or manually: uv run -m spacy download en_core_web_sm pt_core_news_sm
+
+# Pull translation models (first time only)
 ollama pull gemma3:latest
 ollama pull tibellium/towerinstruct-mistral:7b
 
@@ -44,8 +48,11 @@ dada evaluate <translated_file>
 # 3. Merge (if using multiple models)
 dada merge <eval_file1> <eval_file2>
 
-# 4. Review and improve
-dada review <merged_or_eval_file>
+# 4. Analyze quality (detect entities needing cultural adaptation)
+dada analyze <merged_or_eval_file>
+
+# 5. Review for cultural adaptation (based on analysis)
+dada review <analyzed_file>
 ```
 
 ## Commands
@@ -80,7 +87,8 @@ output/
 ├── 01-translated/  # {timestamp}_{dataset}_{model}_translated.json
 ├── 02-evaluated/   # {timestamp}_{dataset}_evaluated.json
 ├── 03-merged/      # {timestamp}_{dataset}_merged.json
-├── 04-reviewed/    # {timestamp}_{dataset}_reviewed.json
+├── 04-analyzed/    # {timestamp}_{dataset}_analyzed.json (entity detection, vocab)
+├── 05-reviewed/    # {timestamp}_{dataset}_reviewed.json (cultural adaptation)
 └── runs/{id}/      # manifest.json (pipeline artifacts)
 ```
 

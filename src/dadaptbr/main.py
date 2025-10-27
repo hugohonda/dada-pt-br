@@ -27,6 +27,42 @@ def list_models():
         print(f"{name}: {config['display_name']} ({config['ollama_name']})")
 
 
+def setup_analyzer_models():
+    """Download required spacy models for analyzer."""
+    import subprocess
+
+    print("Setting up analyzer models...")
+    print("-" * 40)
+
+    models = [
+        ("en_core_web_sm", "English"),
+        ("pt_core_news_sm", "Portuguese"),
+    ]
+
+    for model_name, lang in models:
+        print(f"Installing {lang} model ({model_name})...")
+        try:
+            # Use uv run with spacy download (requires pip in dependencies)
+            result = subprocess.run(
+                ["uv", "run", "-m", "spacy", "download", model_name], check=False
+            )
+            if result.returncode != 0:
+                print(f"✗ Failed with exit code {result.returncode}")
+                print("\nTry installing manually:")
+                print(f"  uv run -m spacy download {model_name}")
+                return False
+            print(f"✓ {model_name} installed\n")
+        except FileNotFoundError:
+            print("\n✗ uv command not found")
+            print("Please install uv or try manually:")
+            print(f"  uv run -m spacy download {model_name}")
+            return False
+
+    print("-" * 40)
+    print("✓ Setup complete! You can now use: dada analyze <file>")
+    return True
+
+
 def list_files():
     """List downloaded files."""
     import glob
@@ -106,6 +142,15 @@ def handle_review(args):
     review_process(args.input_file, output, args.model, args.limit, args.workers)
 
 
+def handle_analyze(args):
+    # Lazy import to avoid heavy deps when not needed
+    from .analyzer import process_dataset as analyze_process
+    from .utils import generate_analysis_filename
+
+    output = args.output or generate_analysis_filename(args.input_file)
+    analyze_process(args.input_file, output, args.limit, args.workers)
+
+
 def handle_merge(args):
     # Lazy import to avoid heavy deps when not needed
     from .merger import merge_evaluations
@@ -116,12 +161,14 @@ def handle_merge(args):
 
 
 def handle_run(args):
-    """Run full pipeline: translate → evaluate → merge → review."""
+    """Run full pipeline: translate → evaluate → merge → analyze → review."""
+    from .analyzer import process_dataset as analyze_process
     from .evaluator import process_dataset as evaluate_process
     from .merger import merge_evaluations
     from .reviewer import process_dataset as review_process
     from .translator import process_dataset as translate_process
     from .utils import (
+        generate_analysis_filename,
         generate_evaluation_filename,
         generate_merge_filename,
         generate_output_filename,
@@ -175,16 +222,20 @@ def handle_run(args):
         out_merge = generate_merge_filename(evaluated_paths[0], evaluated_paths[1])
         merge_evaluations(evaluated_paths[0], evaluated_paths[1], out_merge, args.limit)
         artifacts.append({"phase": "merged", "path": out_merge})
-        review_input = out_merge
+        analyze_input = out_merge
     else:
-        # If only one, review that one
-        review_input = evaluated_paths[0]
+        # If only one, analyze that one
+        analyze_input = evaluated_paths[0]
 
-    # 4) Review
-    out_review = generate_review_filename(review_input)
-    # Choose first model for review LLM choice default
+    # 4) Analyze (detect entities needing cultural adaptation)
+    out_analyze = generate_analysis_filename(analyze_input)
+    analyze_process(analyze_input, out_analyze, args.limit, args.workers)
+    artifacts.append({"phase": "analyzed", "path": out_analyze})
+
+    # 5) Review (cultural adaptation based on analysis)
     review_model = models[0] if models else get_default_model("review")
-    review_process(review_input, out_review, review_model, args.limit, args.workers)
+    out_review = generate_review_filename(out_analyze)
+    review_process(out_analyze, out_review, review_model, args.limit, args.workers)
     artifacts.append({"phase": "reviewed", "path": out_review})
 
     # Write manifest
@@ -199,6 +250,7 @@ def handle_run(args):
 
     print("Pipeline completed.")
     print(f"Manifest: {manifest_path}")
+    print(f"Final output: {out_review}")
 
 
 def add_common_args(
@@ -258,6 +310,14 @@ def main():
     add_common_args(p_review, include_workers=True)
     p_review.set_defaults(func=handle_review)
 
+    # analyze
+    p_analyze = subparsers.add_parser(
+        "analyze", help="Analyze translation quality (NER, vocab, concordancy)"
+    )
+    p_analyze.add_argument("input_file", help="Input JSON file")
+    add_common_args(p_analyze, include_workers=True)
+    p_analyze.set_defaults(func=handle_analyze)
+
     # merge
     p_merge = subparsers.add_parser("merge", help="Merge evaluation results")
     p_merge.add_argument("file1", help="First evaluation file")
@@ -275,6 +335,9 @@ def main():
     subparsers.add_parser("files", help="List files").set_defaults(
         func=lambda _: list_files()
     )
+    subparsers.add_parser(
+        "setup", help="Download analyzer models (spacy)"
+    ).set_defaults(func=lambda _: setup_analyzer_models())
 
     # run (full pipeline)
     p_run = subparsers.add_parser("run", help="Run full pipeline")
@@ -294,11 +357,12 @@ def main():
     from .utils import resolve_device, resolve_workers
 
     if hasattr(args, "workers"):
-        phase = (
-            "translation"
-            if args.command == "translate"
-            else ("review" if args.command == "review" else args.command)
-        )
+        phase = {
+            "translate": "translation",
+            "review": "review",
+            "analyze": "analysis",
+            "run": "translation",  # run uses multiple phases, default to translation
+        }.get(args.command, args.command)
         try:
             args.workers = resolve_workers(args.workers, phase)
         except Exception:

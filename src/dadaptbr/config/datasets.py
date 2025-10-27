@@ -64,4 +64,5 @@ PHASE_WORKERS = {
     "evaluation": {"default": 1, "max": 1},
     "review": {"default": 8, "max": 16},
     "merge": {"default": 1, "max": 1},
+    "analysis": {"default": 8, "max": 16},
 }
