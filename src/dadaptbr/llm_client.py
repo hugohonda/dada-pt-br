@@ -54,11 +54,28 @@ def translate_text(text: str, client, model_name: str, prompt: str) -> str:
     """Translate text using specified model with config parameters."""
     try:
         formatted_prompt = prompt.format(text=text)
-        response = client.chat(
-            model=model_name,
-            messages=[{"role": "user", "content": formatted_prompt}],
-            options=LLM_DEFAULT_PARAMS,
-        )
+
+        # Check if this model should disable thinking
+        # Find the model config by reverse lookup on ollama_name
+        think_param = None
+        for model_key, config in TRANSLATION_MODELS.items():
+            if config["ollama_name"] == model_name:
+                if "think" in config:
+                    think_param = config["think"]
+                break
+
+        # Build chat call parameters
+        chat_kwargs = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": formatted_prompt}],
+            "options": LLM_DEFAULT_PARAMS,
+        }
+
+        # Add think parameter if specified (for thinking models like qwen3)
+        if think_param is not None:
+            chat_kwargs["think"] = think_param
+
+        response = client.chat(**chat_kwargs)
         translation = response["message"]["content"].strip()
 
         # Clean up the response

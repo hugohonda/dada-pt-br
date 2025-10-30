@@ -34,7 +34,7 @@ dada run <input_file> --models tower,gemma3 [--limit N]
 
 ### Step-by-Step
 ```bash
-# 1. Translate (pick one or both models)
+# 1. Translate (pick one or multiple models)
 dada translate <file> --model tower
 dada translate <file> --model gemma3
 
@@ -71,6 +71,7 @@ dada review <merged_or_eval_file>
 
 - **tower** - TowerInstruct-Mistral-7B (default translator)
 - **gemma3** - Gemma-3-4b (reviewer, second translator)
+- **qwen3** - Qwen3-4B (third translator)
 - **xcomet-xl** - XCOMET-XL (quality evaluator)
 
 ## Output Structure
@@ -106,7 +107,11 @@ docker run -v $(pwd)/datasets:/app/datasets \
 
 # GPU version (for faster ML workloads)
 docker build -f Dockerfile.gpu -t dada-gpu .
-docker run --gpus all -v $(pwd)/output:/app/output dada-gpu evaluate input.json
+docker run --rm --gpus all --network host -e OLLAMA_HOST=host.docker.internal \
+           -v $(pwd)/datasets:/app/datasets \
+           -v $(pwd)/output:/app/output \
+           -v $(pwd)/logs:/app/logs \
+           dada-gpu evaluate input.json
 
 ```
 
@@ -137,6 +142,10 @@ The Docker containers expect these volume mounts for data persistence:
 ## Dataset Support
 
 Place raw datasets in `datasets/raw/`. Currently supported:
+- M-ALERT (`felfri_M-ALERT_train.json`)
+- ALERT (`Babelscape_ALERT_*.json`)
+- AgentHarm (`ai-safety-institute_AgentHarm_*.json`)
+atasets/raw/`. Currently supported:
 - M-ALERT (`felfri_M-ALERT_train.json`)
 - ALERT (`Babelscape_ALERT_*.json`)
 - AgentHarm (`ai-safety-institute_AgentHarm_*.json`)

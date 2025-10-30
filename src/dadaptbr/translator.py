@@ -258,8 +258,8 @@ def main():
     load_dotenv()
 
     parser = argparse.ArgumentParser(
-        description="Dataset Translator - Ollama Gemma3 & TowerInstruct-Mistral-7B-v0.2",
-        epilog="Examples:\n  python translator.py dataset.json\n  python translator.py dataset.json --model=tower --limit=100\n  python translator.py dataset.json --model=gemma3",
+        description="Dataset Translator",
+        epilog="Examples:\n  python translator.py dataset.json\n  python translator.py dataset.json --model=tower --limit=100\n  python translator.py dataset.json --model=gemma3\n  python translator.py dataset.json --model=qwen3",
     )
 
     parser.add_argument("input_file", help="Input JSON file to translate")

@@ -29,11 +29,28 @@ def load_review_prompt() -> str:
 def review_translation(client, model_name: str, prompt: str) -> str:
     """Review translation using specified model with custom prompt."""
     try:
-        response = client.chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1, "top_p": 0.9, "max_tokens": 2048},
-        )
+        # Check if this model should disable thinking
+        from .config.datasets import TRANSLATION_MODELS
+
+        think_param = None
+        for _, config in TRANSLATION_MODELS.items():
+            if config["ollama_name"] == model_name:
+                if "think" in config:
+                    think_param = config["think"]
+                break
+
+        # Build chat call parameters
+        chat_kwargs = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "options": {"temperature": 0.1, "top_p": 0.9, "max_tokens": 2048},
+        }
+
+        # Add think parameter if specified (for thinking models like qwen3)
+        if think_param is not None:
+            chat_kwargs["think"] = think_param
+
+        response = client.chat(**chat_kwargs)
         return response["message"]["content"].strip()
     except Exception as e:
         _LOGGER.error(f"Error reviewing translation: {e}")

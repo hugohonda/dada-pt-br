@@ -34,10 +34,19 @@ TRANSLATION_MODELS = {
         "ollama_name": "gemma3:latest",
         "display_name": "Gemma3",
     },
+    "gemma3gaia": {
+        "ollama_name":  "brunoconterato/Gemma-3-Gaia-PT-BR-4b-it:f16",
+        "display_name": "Gemma3Gaia"
+    },
     "tower": {
         "ollama_name": "thinkverse/towerinstruct:latest",
         "display_name": "TowerInstruct",
         "default": True,
+    },
+    "qwen3": {
+        "ollama_name": "qwen3:4b",
+        "display_name": "Qwen3-4B",
+        "think": False,
     },
 }
 
