@@ -1,14 +1,11 @@
-# GPU-enabled Dockerfile for ML workloads
 FROM nvidia/cuda:12.1-devel-ubuntu22.04
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3.11-dev \
@@ -27,27 +24,19 @@ RUN ln -s /usr/bin/python3.11 /usr/bin/python
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# Set working directory
 WORKDIR /app
 
-# Copy dependency files
 COPY pyproject.toml uv.lock ./
 
-# Install Python dependencies with CUDA support
 RUN uv sync --frozen --no-dev
 
-# Copy source code
 COPY src/ ./src/
 COPY README.md ./
 
-# Install the package
 RUN uv pip install -e .
 
-# Create necessary directories
-RUN mkdir -p output logs datasets/raw final-data
+RUN mkdir -p output logs datasets
 
-# Set the default command
 ENTRYPOINT ["python", "-m", "dadaptbr.main"]
 
-# Default command
 CMD ["--help"]

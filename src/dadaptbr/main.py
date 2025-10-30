@@ -68,16 +68,16 @@ def handle_download(args):
 def handle_translate(args):
     # Lazy import to avoid heavy deps when not needed
     from .translator import process_dataset as translate_process
-    from .utils import generate_output_filename
+    from .utils import generate_output_filename, resolve_dataset_file
 
-    # Use model name directly - simplified approach
+    input_file = resolve_dataset_file(args.input_file)
     model_name = args.model
     output_file = args.output or generate_output_filename(
-        args.input_file, "translated", model_name
+        input_file, "translated", model_name
     )
 
     translate_process(
-        args.input_file,
+        input_file,
         output_file,
         model_name,
         args.workers,
@@ -87,7 +87,6 @@ def handle_translate(args):
 
 
 def handle_evaluate(args):
-    # Lazy import to avoid heavy deps when not needed
     from .evaluator import process_dataset as evaluate_process
     from .utils import generate_evaluation_filename
 
@@ -98,7 +97,6 @@ def handle_evaluate(args):
 
 
 def handle_review(args):
-    # Lazy import to avoid heavy deps when not needed
     from .reviewer import process_dataset as review_process
     from .utils import generate_review_filename
 
@@ -107,7 +105,6 @@ def handle_review(args):
 
 
 def handle_merge(args):
-    # Lazy import to avoid heavy deps when not needed
     from .merger import merge_evaluations
     from .utils import generate_merge_filename
 
@@ -128,15 +125,13 @@ def handle_run(args):
         generate_review_filename,
         get_dataset_id,
         get_timestamp,
+        resolve_dataset_file,
         write_run_manifest,
     )
 
     pipeline_id = args.pipeline_id or get_timestamp()
     dataset_id = get_dataset_id(args.input_file)
     models = [m.strip() for m in args.models.split(",") if m.strip()]
-    # Resolve dataset file if user passed a key or a non-existing path
-    from .utils import resolve_dataset_file
-
     input_file = resolve_dataset_file(args.input_file)
     artifacts = []
 
@@ -265,7 +260,7 @@ def main():
     add_common_args(p_merge)
     p_merge.set_defaults(func=handle_merge)
 
-    # Simple info commands
+    # info commands
     subparsers.add_parser("list", help="List datasets").set_defaults(
         func=lambda _: list_datasets()
     )
@@ -276,7 +271,7 @@ def main():
         func=lambda _: list_files()
     )
 
-    # run (full pipeline)
+    # full pipeline
     p_run = subparsers.add_parser("run", help="Run full pipeline")
     p_run.add_argument("input_file", help="Input JSON file")
     p_run.add_argument(

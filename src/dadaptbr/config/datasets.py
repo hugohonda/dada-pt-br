@@ -2,17 +2,24 @@ DATASETS = {
     "m_alert": "felfri/M-ALERT",
 }
 
-# Filename mappings for dataset identification
+# Dataset file mappings: key -> filename in datasets/
+DATASET_FILES = {
+    "m_alert": "felfri_M-ALERT_train.json",
+    "alert": "Babelscape_ALERT_alert_test.json",
+    "alert_adversarial": "Babelscape_ALERT_alert_adversarial_test.json",
+    "agent_harm_chat": "ai-safety-institute_AgentHarm_chat_test_public.json",
+    "agent_harm_harmful": "ai-safety-institute_AgentHarm_harmful_test_public.json",
+    "agent_harm_harmless": "ai-safety-institute_AgentHarm_harmless_benign_test_public.json",
+}
+
+# Filename mappings for dataset identification (reverse lookup)
 FILENAME_MAPPINGS = {
-    # M-ALERT dataset
     "felfri_M-ALERT_train.json": "m_alert",
     "felfri_M-ALERT_test.json": "m_alert",
-    # ALERT datasets
     "Babelscape_ALERT_alert_train.json": "alert",
     "Babelscape_ALERT_alert_test.json": "alert",
     "Babelscape_ALERT_alert_adversarial_train.json": "alert_adversarial",
     "Babelscape_ALERT_alert_adversarial_test.json": "alert_adversarial",
-    # AgentHarm datasets
     "ai-safety-institute_AgentHarm_chat_train.json": "agent_harm_chat",
     "ai-safety-institute_AgentHarm_chat_test.json": "agent_harm_chat",
     "ai-safety-institute_AgentHarm_harmful_train.json": "agent_harm_harmful",

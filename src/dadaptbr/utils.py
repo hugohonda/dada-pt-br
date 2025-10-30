@@ -29,42 +29,27 @@ def load_json_file(file_path: str) -> tuple[list[dict], dict]:
 
 
 def resolve_dataset_file(input_path_or_key: str) -> str:
-    """Resolve dataset file path with minimal logic.
+    """Resolve dataset file path.
 
-    1) If the given path exists, return it.
-    2) Otherwise, treat input as a dataset key (e.g., 'm_alert') and
-       look for a known filename in datasets/raw/ via FILENAME_MAPPINGS.
-    3) If none found, fallback to any file in datasets/raw/ that contains the key.
+    If path exists, return it. Otherwise, lookup filename from DATASET_FILES dict.
     """
     if os.path.exists(input_path_or_key):
         return input_path_or_key
 
-    key = os.path.splitext(os.path.basename(input_path_or_key))[0].lower()
-    raw_dir = os.path.join("datasets", "raw")
-    if not os.path.isdir(raw_dir):
+    from .config.datasets import DATASET_FILES
+
+    if input_path_or_key not in DATASET_FILES:
         raise FileNotFoundError(
-            f"Raw datasets directory not found: {raw_dir}. Please place files there or pass a file path."
+            f"Dataset '{input_path_or_key}' not found. Available: {list(DATASET_FILES.keys())}"
         )
 
-    from .config.datasets import FILENAME_MAPPINGS
+    filename = DATASET_FILES[input_path_or_key]
+    file_path = os.path.join("datasets", filename)
 
-    # Priority: explicit mapping entries matching the dataset key
-    for fname, did in FILENAME_MAPPINGS.items():
-        if did.lower() == key:
-            full = os.path.join(raw_dir, fname)
-            if os.path.exists(full):
-                return full
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Dataset file not found: {file_path}")
 
-    # Fallback: loose match by filename containing the key
-    for fname in os.listdir(raw_dir):
-        if key in fname.lower():
-            full = os.path.join(raw_dir, fname)
-            if os.path.exists(full):
-                return full
-
-    raise FileNotFoundError(
-        f"Could not resolve dataset '{input_path_or_key}'. Pass an existing file path or a known dataset key."
-    )
+    return file_path
 
 
 def save_json_file(data: Any, file_path: str, indent: int = 2) -> None:
@@ -88,7 +73,6 @@ def save_json_file(data: Any, file_path: str, indent: int = 2) -> None:
 
 def extract_texts(example: dict[str, Any]) -> tuple[str, str]:
     """Extract source and translation texts using simplified logic."""
-    # Standardized field extraction
     source = example.get("en", "")
     translation = example.get("pt-br", "")
 
@@ -109,7 +93,6 @@ def get_dataset_id(input_file: str) -> str:
 
     filename = os.path.basename(input_file)
 
-    # Direct mapping
     if filename in FILENAME_MAPPINGS:
         return FILENAME_MAPPINGS[filename]
 
@@ -188,9 +171,6 @@ def generate_merge_filename(file1: str, file2: str) -> str:
     return generate_output_filename(file1, "merged", None, dataset_id, pipeline_id)
 
 
-# --------- Runtime helpers for pipeline orchestration ---------
-
-
 def resolve_workers(workers: int | str, phase: str) -> int:
     """Resolve workers value; supports 'auto' and clamps by phase caps."""
     from .config.datasets import PHASE_WORKERS
@@ -235,9 +215,6 @@ def write_run_manifest(
 
     save_json_file(manifest, str(manifest_path))
     return str(manifest_path)
-
-
-# Removed unused functions: generate_log_filename, generate_visualization_path
 
 
 def validate_file_exists(file_path: str) -> bool:

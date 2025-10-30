@@ -4,7 +4,7 @@ from pathlib import Path
 from .config.datasets import DATASETS
 
 
-def download_dataset(dataset_id: str, output_dir: str = "datasets/raw") -> str:
+def download_dataset(dataset_id: str, output_dir: str = "datasets") -> str:
     """Download dataset from Hugging Face"""
     if dataset_id not in DATASETS:
         raise ValueError(f"Unknown dataset: {dataset_id}. Available: {list(DATASETS.keys())}")
