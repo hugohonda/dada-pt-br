@@ -5,11 +5,12 @@ import time
 import warnings
 
 import torch
-from comet import download_model, load_from_checkpoint
+from comet import load_from_checkpoint
+from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
-from .config.datasets import FILE_PROCESSING
-from .config.logging import setup_logger
+from .config.datasets import EVALUATION_MODELS, FILE_PROCESSING
+from .config.logging import log_model_info, setup_logger
 from .utils import (
     ensure_directory_exists,
     extract_pipeline_id,
@@ -33,39 +34,56 @@ logging.getLogger("torchmetrics").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 
-def load_xcomet_model():
-    """Load XCOMET-XL model from local models folder or download if needed."""
+def load_xcomet_model(model_name: str = None):
+    """Load evaluation model using HuggingFace cache.
+
+    Args:
+        model_name: Name of the model from EVALUATION_MODELS config.
+                   If None, uses the default model.
+    """
     try:
-        _LOGGER.info("Loading XCOMET-XL model...")
+        # Get default model if not specified
+        if model_name is None:
+            model_name = next(
+                (
+                    name
+                    for name, config in EVALUATION_MODELS.items()
+                    if config.get("default", False)
+                ),
+                next(iter(EVALUATION_MODELS.keys()), None),
+            )
+            if model_name is None:
+                raise ValueError("No evaluation models configured")
 
-        # Try to find existing model first
-        from .config.datasets import EVALUATION_MODELS
+        if model_name not in EVALUATION_MODELS:
+            raise ValueError(
+                f"Unknown model: {model_name}. "
+                f"Available: {list[str](EVALUATION_MODELS.keys())}"
+            )
 
-        model_name = "xcomet-xl"
-        if model_name in EVALUATION_MODELS:
-            repo_id = EVALUATION_MODELS[model_name]["hf_model_id"]
-            safe_name = repo_id.replace("/", "_").replace(":", "_")
-            model_dir = os.path.join("models", safe_name)
-        else:
-            model_dir = os.path.join("models", "xcomet-xl")
+        model_config = EVALUATION_MODELS[model_name]
+        repo_id = model_config["hf_model_id"]
+        display_name = model_config.get("display_name", model_name)
 
-        local_model_path = os.path.join(model_dir, "checkpoints", "model.ckpt")
+        _LOGGER.info(f"Loading {display_name} model...")
 
-        if os.path.exists(local_model_path):
-            _LOGGER.info(f"Using local model: {local_model_path}")
-            model_path = local_model_path
-        else:
-            _LOGGER.info("Model not found locally, downloading...")
-            model_path = download_model("Unbabel/XCOMET-XL")
-            _LOGGER.info(f"Model downloaded to: {model_path}")
+        model_dir = snapshot_download(
+            repo_id=repo_id,
+            cache_dir=None,  # Use default HF cache
+            local_files_only=False,  # Allow download if not cached
+        )
 
-        model = load_from_checkpoint(model_path)
-        _LOGGER.info("Model loaded successfully")
+        checkpoint_path = os.path.join(model_dir, "checkpoints", "model.ckpt")
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}")
+
+        model = load_from_checkpoint(checkpoint_path)
+        _LOGGER.info(f"{display_name} model loaded successfully")
         return model
 
     except Exception as e:
-        _LOGGER.error(f"Error loading XCOMET-XL model: {e}")
-        _LOGGER.error("Please run: uv run dada download xcomet-xl")
+        _LOGGER.error(f"Error loading evaluation model: {e}")
+        _LOGGER.error(f"Please run: uv run dada download {model_name}")
         raise
 
 
@@ -137,10 +155,34 @@ def process_dataset(
         f"Evaluating {len(data)} examples from dataset: {dataset_id} - Pipeline ID: {pipeline_id}"
     )
 
+    # Determine which model to use (get default from config)
+    model_name = next(
+        (
+            name
+            for name, config in EVALUATION_MODELS.items()
+            if config.get("default", False)
+        ),
+        next(iter(EVALUATION_MODELS.keys()), None),
+    )
+    if model_name is None:
+        _LOGGER.error("No evaluation models configured")
+        return
+
+    model_config = EVALUATION_MODELS.get(model_name, {})
+    batch_size = batch_size or FILE_PROCESSING["default_batch_size"]
+    log_model_info(
+        _LOGGER,
+        "evaluation",
+        model_name,
+        model_config,
+        batch_size=batch_size,
+        device=device,
+    )
+
     try:
-        model = load_xcomet_model()
+        model = load_xcomet_model(model_name)
     except Exception as e:
-        _LOGGER.error(f"Failed to load XCOMET model: {e}")
+        _LOGGER.error(f"Failed to load evaluation model: {e}")
         _LOGGER.info("Evaluation cannot proceed without the model")
         return
 
@@ -224,9 +266,7 @@ def process_dataset(
         processing_time=total_processing_time,
         results=results,
         batch_size=batch_size,
-        total_batches=len(xcomet_data) // batch_size
-        + (1 if len(xcomet_data) % batch_size else 0),
-        model_name="xcomet-xl",
+        model_name=model_name,
     )
 
     # Create final data structure

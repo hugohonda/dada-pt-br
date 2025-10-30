@@ -3,12 +3,11 @@ import os
 
 from dotenv import load_dotenv
 
-from .config.datasets import DATASETS, DEFAULT_MODELS, TRANSLATION_MODELS
-
-
-def get_default_model(operation: str) -> str:
-    """Get default model for a specific operation."""
-    return DEFAULT_MODELS.get(operation, "tower")
+from .config.datasets import (
+    DATASETS,
+    DEFAULT_MODELS,
+    TRANSLATION_MODELS,
+)
 
 
 def list_datasets():
@@ -178,7 +177,7 @@ def handle_run(args):
     # 4) Review
     out_review = generate_review_filename(review_input)
     # Choose first model for review LLM choice default
-    review_model = models[0] if models else get_default_model("review")
+    review_model = models[0] if models else DEFAULT_MODELS["review"]
     review_process(review_input, out_review, review_model, args.limit, args.workers)
     artifacts.append({"phase": "reviewed", "path": out_review})
 
@@ -235,7 +234,7 @@ def main():
     # translate
     p_translate = subparsers.add_parser("translate", help="Translate dataset")
     p_translate.add_argument("input_file", help="Input JSON file")
-    p_translate.add_argument("--model", "-m", default=get_default_model("translation"))
+    p_translate.add_argument("--model", "-m", default=DEFAULT_MODELS["translation"])
     add_common_args(p_translate, include_workers=True, include_device=True)
     p_translate.set_defaults(func=handle_translate)
 
@@ -249,7 +248,7 @@ def main():
     # review
     p_review = subparsers.add_parser("review", help="Review and improve translations")
     p_review.add_argument("input_file", help="Input JSON file")
-    p_review.add_argument("--model", "-m", default=get_default_model("review"))
+    p_review.add_argument("--model", "-m", default=DEFAULT_MODELS["review"])
     add_common_args(p_review, include_workers=True)
     p_review.set_defaults(func=handle_review)
 
@@ -276,7 +275,7 @@ def main():
     p_run.add_argument("input_file", help="Input JSON file")
     p_run.add_argument(
         "--models",
-        default=get_default_model("translation"),
+        default=DEFAULT_MODELS["translation"],
         help="Comma-separated models",
     )
     p_run.add_argument("--batch-size", "-b", type=int, default=8)

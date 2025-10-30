@@ -25,6 +25,12 @@ dada run datasets/raw/m_alert.json --models tower,gemma3 --limit 100
 - Ollama with translation models
 - (Optional) CUDA for evaluation phase
 
+### Performance Optimization
+
+**Multi-GPU:** Set `OLLAMA_SCHED_SPREAD=1` and `OLLAMA_NUM_PARALLEL=N` on Ollama server. `--workers auto` uses ~3 workers per GPU.
+
+**CPU:** Connection pooling auto-configured based on `--workers` (reuses HTTP connections, reduces overhead).
+
 ## Usage
 
 ### Full Pipeline (Recommended)
@@ -63,7 +69,7 @@ dada review <merged_or_eval_file>
 
 **Common Options:**
 - `--limit N` - Process only N examples
-- `--workers auto` - Parallel workers (auto-detect)
+- `--workers auto` - Parallel workers (GPU-aware, auto-detects)
 - `--device auto` - Use CUDA if available
 - `--output <path>` - Custom output path
 
@@ -90,62 +96,66 @@ output/
 ### Quick Start with Docker
 
 ```bash
-# Build and run (CPU-optimized, multi-stage build)
+# Build CPU version
 docker build -t dada .
 
-# Basic commands (no data needed)
+# Build GPU version
+docker build -f Dockerfile.gpu -t dada-gpu .
+
+# Basic commands
 docker run dada list
 docker run dada models
 docker run dada files
 
-# With data volumes (for actual processing)
-docker run -v $(pwd)/datasets:/app/datasets \
-           -v $(pwd)/output:/app/output \
-           -v $(pwd)/logs:/app/logs \
-           -v $(pwd)/final-data:/app/final-data \
-           dada translate m_alert --model tower --limit 10
-
-# GPU version (for faster ML workloads)
-docker build -f Dockerfile.gpu -t dada-gpu .
-docker run --rm --gpus all --network host -e OLLAMA_HOST=host.docker.internal \
+# CPU: With data volumes
+docker run --rm --network host \
+           --user $(id -u):$(id -g) \
            -v $(pwd)/datasets:/app/datasets \
            -v $(pwd)/output:/app/output \
            -v $(pwd)/logs:/app/logs \
-           dada-gpu evaluate input.json
+           dada translate datasets/felfri_M-ALERT_train.json --model gemma3
 
+# GPU: For evaluation (requires NVIDIA runtime)
+docker run --rm --gpus all --network host \
+           --user $(id -u):$(id -g) \
+           -v $(pwd)/datasets:/app/datasets \
+           -v $(pwd)/output:/app/output \
+           -v $(pwd)/logs:/app/logs \
+           dada-gpu evaluate output/01-translated/translated_file.json
 ```
 
 ### Docker Compose
 
 ```bash
+# Set your user ID for proper file permissions
+export UID=$(id -u)
+export GID=$(id -g)
+
 # CPU version
 docker-compose --profile cpu up
 
 # GPU version (requires NVIDIA Docker runtime)
 docker-compose --profile gpu up
-
 ```
 
 ### Available Dockerfiles
 
-- **`Dockerfile`** - Multi-stage optimized build (CPU-only, secure, small)
-- **`Dockerfile.gpu`** - GPU-enabled version with CUDA support
+- **`Dockerfile`** - Multi-stage build (CPU-only, PyTorch CPU, secure, small)
+- **`Dockerfile.gpu`** - Multi-stage build (CUDA 12.1, GPU-enabled, secure)
 
 ### Volume Mounts
 
-The Docker containers expect these volume mounts for data persistence:
+The Docker containers use bind mounts for syncing data with the host:
 - `./output:/app/output` - Pipeline outputs
 - `./logs:/app/logs` - Log files
 - `./datasets:/app/datasets` - Input datasets
 - `./final-data:/app/final-data` - Final processed data
 
+**Permissions:** Containers run as non-root user. Use `--user $(id -u):$(id -g)` with `docker run` or export `UID`/`GID` for docker-compose to match host permissions and avoid permission issues
+
 ## Dataset Support
 
 Place raw datasets in `datasets/raw/`. Currently supported:
-- M-ALERT (`felfri_M-ALERT_train.json`)
-- ALERT (`Babelscape_ALERT_*.json`)
-- AgentHarm (`ai-safety-institute_AgentHarm_*.json`)
-atasets/raw/`. Currently supported:
 - M-ALERT (`felfri_M-ALERT_train.json`)
 - ALERT (`Babelscape_ALERT_*.json`)
 - AgentHarm (`ai-safety-institute_AgentHarm_*.json`)

@@ -60,10 +60,21 @@ def create_evaluation_metadata(
     processing_time: float,
     results: list[dict[str, Any]],
     batch_size: int,
-    total_batches: int,
-    model_name: str = "xcomet-xl",
+    model_name: str = None,
 ) -> dict[str, Any]:
     """Create metadata for evaluation phase."""
+    # Get default model from config if not provided
+    if model_name is None:
+        from .config.datasets import EVALUATION_MODELS
+
+        model_name = next(
+            (
+                name
+                for name, config in EVALUATION_MODELS.items()
+                if config.get("default", False)
+            ),
+            next(iter(EVALUATION_MODELS.keys()), None),
+        )
     scores = [item.get("score", 0) for item in results if item.get("score")]
     avg_score = round(sum(scores) / len(scores), 4) if scores else 0
     return create_metadata(

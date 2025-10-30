@@ -42,7 +42,9 @@ def merge_evaluations(
     merged_data = []
     stats = {"total": len(data1), "from_file1": 0, "from_file2": 0, "tie": 0}
 
-    for i, (example1, example2) in enumerate(zip(data1, data2, strict=False)):
+    for i, (example1, example2) in enumerate[tuple[dict, dict]](
+        zip[tuple[dict, dict]](data1, data2, strict=False)
+    ):
         # Ensure both examples have the same source and index
         if example1.get("source") != example2.get("source"):
             _LOGGER.warning(f"Example {i}: Different sources, skipping")
@@ -53,28 +55,36 @@ def merge_evaluations(
             continue
 
         # Compare scores and pick the best
-        score1 = example1.get("score", 0.0)
-        score2 = example2.get("score", 0.0)
-        model1 = metadata1.get("model", "unknown")
-        model2 = metadata2.get("model", "unknown")
+        score1: float = example1.get("score", 0.0)
+        score2: float = example2.get("score", 0.0)
+        model1: str = metadata1.get("model", "unknown")
+        model2: str = metadata2.get("model", "unknown")
 
         # Pick best translation (or tie-breaker)
         if score1 > score2 or (
             score1 == score2 and model1 == DEFAULT_MODELS["tie_breaker"]
         ):
-            first, second = example1, example2
-            first_model, second_model = model1, model2
+            first: dict = example1
+            second: dict = example2
+            first_model: str = model1
+            second_model: str = model2
             first_score, second_score = score1, score2
             stats["from_file1"] += 1 if score1 > score2 else 0
+            stats["from_file2"] += 1 if score2 > score1 else 0
             stats["tie"] += 1 if score1 == score2 else 0
         else:
-            first, second = example2, example1
-            first_model, second_model = model2, model1
-            first_score, second_score = score2, score1
-            stats["from_file2"] += 1
+            first: dict = example2
+            second: dict = example1
+            first_model: str = model2
+            second_model: str = model1
+            first_score: float = score2
+            second_score: float = score1
+            stats["from_file2"] += 1 if score2 > score1 else 0
+            stats["from_file1"] += 1 if score1 > score2 else 0
+            stats["tie"] += 1 if score1 == score2 else 0
 
         # Create merged entry with both translations for review
-        best_example = {
+        best_example: dict = {
             "index": first.get("index", i),
             "id": first.get("id", i),
             "source": first.get("source", ""),
@@ -93,11 +103,11 @@ def merge_evaluations(
     total_processing_time = time.time() - start_time
 
     # Extract model names for analysis
-    model1 = metadata1.get("model_name", "unknown")
-    model2 = metadata2.get("model_name", "unknown")
+    model1: str = metadata1.get("model_name", "unknown")
+    model2: str = metadata2.get("model_name", "unknown")
 
     # Create merge metadata
-    merge_metadata = create_merge_metadata(
+    merge_metadata: dict = create_merge_metadata(
         pipeline_id=get_timestamp(),
         dataset_id=get_dataset_id(file1_path),
         total_examples=len(merged_data),
@@ -109,7 +119,7 @@ def merge_evaluations(
     )
 
     # Create final data structure
-    final_data = {"metadata": merge_metadata, "data": merged_data}
+    final_data: dict = {"metadata": merge_metadata, "data": merged_data}
 
     # Save merged data
     save_json_file(final_data, output_path)

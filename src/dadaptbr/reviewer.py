@@ -5,9 +5,9 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from .config.datasets import PHASE_WORKERS
-from .config.logging import setup_logger
-from .llm_client import get_ollama_name, init_ollama
+from .config.datasets import DEFAULT_MODELS, PHASE_WORKERS, TRANSLATION_MODELS
+from .config.logging import log_model_info, setup_logger
+from .llm_client import init_ollama
 from .metadata_utils import create_review_metadata
 from .utils import (
     get_dataset_id,
@@ -219,7 +219,7 @@ def review_single_parallel(args):
 def process_dataset(
     input_file: str,
     output_file: str,
-    model_name: str = "tower",
+    model_name: str = None,
     limit: int | None = None,
     max_workers: int = None,
 ):
@@ -243,17 +243,29 @@ def process_dataset(
 
     _LOGGER.info(f"Reviewing {len(data)} examples from dataset: {dataset_id}")
 
-    # Initialize Ollama client
-    ollama_model_name = get_ollama_name(model_name)
-    client = init_ollama(ollama_model_name)
-
-    # Load review prompt
-    prompt_template = load_review_prompt()
+    # Get default model if not specified
+    if model_name is None:
+        model_name = DEFAULT_MODELS["review"]
 
     # Set default workers if not provided
     if max_workers is None:
         max_workers = PHASE_WORKERS["review"]["default"]
     max_workers = min(max_workers, PHASE_WORKERS["review"]["max"])
+
+    model_config = TRANSLATION_MODELS.get(model_name, {})
+    ollama_model_name = model_config.get("ollama_name", model_name)
+    log_model_info(
+        _LOGGER,
+        "review",
+        model_name,
+        model_config,
+        max_workers=max_workers,
+    )
+
+    client = init_ollama(ollama_model_name, max_workers=max_workers)
+
+    # Load review prompt
+    prompt_template = load_review_prompt()
 
     _LOGGER.info(f"Processing {len(data)} examples with {max_workers} workers...")
 
@@ -329,7 +341,10 @@ def main():
     parser.add_argument("input_file", help="Input evaluation JSON file")
     parser.add_argument("--output", "-o", help="Output file")
     parser.add_argument(
-        "--model", "-m", default="tower", help="Model to use for review"
+        "--model",
+        "-m",
+        default=DEFAULT_MODELS["review"],
+        help="Model to use for review",
     )
     parser.add_argument("--limit", "-l", type=int, help="Limit examples (default: all)")
 

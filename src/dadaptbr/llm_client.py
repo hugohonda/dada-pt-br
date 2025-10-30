@@ -1,3 +1,6 @@
+import os
+
+import httpx
 import ollama
 
 from .config.datasets import LLM_DEFAULT_PARAMS, TRANSLATION_MODELS
@@ -6,37 +9,70 @@ from .config.logging import setup_logger
 _LOGGER = setup_logger("llm_client", log_to_file=True, log_prefix="llm")
 
 
-def get_model_config(model_key: str = None):
-    """Get model configuration by key or return default."""
-    if model_key and model_key in TRANSLATION_MODELS:
-        return TRANSLATION_MODELS[model_key]
-
-    # Return default model
-    for config in TRANSLATION_MODELS.values():
-        if config.get("default", False):
-            return config
-
-    # Fallback to first model
-    return list(TRANSLATION_MODELS.values())[0]
-
-
-def get_ollama_name(model_key: str = None) -> str:
-    """Get Ollama model name from config key."""
-    config = get_model_config(model_key)
-    return config["ollama_name"]
-
-
-def init_ollama(model_name: str = None):
-    """Initialize Ollama client and validate model."""
-    # Use host.docker.internal for Docker containers, localhost for local execution
-    import os
+def init_ollama(model_name: str = None, max_workers: int = None):
+    """Initialize Ollama client with optimized connection pooling."""
     host = os.getenv("OLLAMA_HOST", "localhost")
-    client = ollama.Client(host=host)
+
+    if max_workers is not None:
+        max_connections = max(max_workers * 2, 20)
+        max_keepalive = max(max_workers, 10)
+
+        limits = httpx.Limits(
+            max_keepalive_connections=max_keepalive,
+            max_connections=max_connections,
+        )
+
+        timeout = httpx.Timeout(
+            connect=10.0,
+            read=300.0,
+            write=10.0,
+            pool=30.0,
+        )
+
+        client = ollama.Client(
+            host=host,
+            limits=limits,
+            timeout=timeout,
+        )
+
+        _LOGGER.info(
+            f"Ollama client configured with connection pool: "
+            f"max_connections={max_connections}, max_keepalive={max_keepalive}"
+        )
+    else:
+        client = ollama.Client(host=host)
+
     _LOGGER.info(f"Connected to Ollama at {host}")
+
+    sched_spread = os.getenv("OLLAMA_SCHED_SPREAD")
+    num_parallel = os.getenv("OLLAMA_NUM_PARALLEL")
+
+    if sched_spread:
+        _LOGGER.info(
+            f"Ollama multi-GPU scheduling enabled (OLLAMA_SCHED_SPREAD={sched_spread})"
+        )
+
+    if num_parallel:
+        _LOGGER.info(
+            f"Ollama parallel requests configured (OLLAMA_NUM_PARALLEL={num_parallel})"
+        )
+        _LOGGER.info(
+            f"Recommend setting --workers={num_parallel} to match Ollama capacity"
+        )
 
     # Use config if no model specified
     if not model_name:
-        model_name = get_ollama_name()
+        # Get default model from config
+        model_name = next(
+            (
+                config["ollama_name"]
+                for config in TRANSLATION_MODELS.values()
+                if config.get("default", False)
+            ),
+            next(iter(TRANSLATION_MODELS.values()), {}).get("ollama_name", None),
+        )
+        if not model_name:
+            raise Exception("No default translation model configured")
 
     models = client.list()
     if hasattr(models, "models") and models.models:
@@ -58,7 +94,7 @@ def translate_text(text: str, client, model_name: str, prompt: str) -> str:
         # Check if this model should disable thinking
         # Find the model config by reverse lookup on ollama_name
         think_param = None
-        for model_key, config in TRANSLATION_MODELS.items():
+        for _model_key, config in TRANSLATION_MODELS.items():
             if config["ollama_name"] == model_name:
                 if "think" in config:
                     think_param = config["think"]

@@ -171,13 +171,43 @@ def generate_merge_filename(file1: str, file2: str) -> str:
     return generate_output_filename(file1, "merged", None, dataset_id, pipeline_id)
 
 
+def get_gpu_count() -> int:
+    """Get number of available GPUs."""
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return len(
+                [line for line in result.stdout.strip().split("\n") if line.strip()]
+            )
+    except Exception:
+        pass
+    return 0
+
+
 def resolve_workers(workers: int | str, phase: str) -> int:
     """Resolve workers value; supports 'auto' and clamps by phase caps."""
     from .config.datasets import PHASE_WORKERS
 
     if isinstance(workers, str) and workers == "auto":
-        cpu = os.cpu_count() or 4
-        auto = min(32, max(4, cpu * 2))
+        if phase in ("translation", "review"):
+            gpu_count = get_gpu_count()
+            if gpu_count > 0:
+                auto = gpu_count * 3
+                auto = max(4, min(auto, 32))
+            else:
+                cpu = os.cpu_count() or 4
+                auto = min(16, max(4, cpu * 2))
+        else:
+            cpu = os.cpu_count() or 4
+            auto = min(32, max(4, cpu * 2))
+
         return min(auto, PHASE_WORKERS.get(phase, {}).get("max", auto))
     return int(workers)
 

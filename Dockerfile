@@ -44,14 +44,17 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN groupadd -r -g 1000 appuser && useradd -r -u 1000 -g appuser appuser
 
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 
-RUN mkdir -p output logs datasets
+RUN mkdir -p output logs datasets && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "dadaptbr.main"]
 CMD ["--help"]

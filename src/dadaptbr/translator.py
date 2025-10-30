@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from .config.datasets import FILE_PROCESSING, PHASE_WORKERS, TRANSLATION_MODELS
-from .config.logging import setup_logger
-from .llm_client import get_ollama_name, init_ollama, translate_text
+from .config.logging import log_model_info, setup_logger
+from .llm_client import init_ollama, translate_text
 from .metadata_utils import create_translation_metadata
 from .utils import (
     ensure_directory_exists,
@@ -150,9 +150,19 @@ def process_dataset(
     _LOGGER.info(f"Translation process started - Pipeline ID: {pipeline_id}")
 
     try:
-        # Get Ollama model name from config
-        ollama_model_name = get_ollama_name(model_name)
-        client = init_ollama(ollama_model_name)
+        model_config = TRANSLATION_MODELS.get(model_name, {})
+        ollama_model_name = model_config.get("ollama_name", model_name)
+
+        log_model_info(
+            _LOGGER,
+            "translation",
+            model_name,
+            model_config,
+            max_workers=max_workers,
+            device=device,
+        )
+
+        client = init_ollama(ollama_model_name, max_workers=max_workers)
 
         data, _ = load_json_file(input_file)
         if not data:
@@ -166,11 +176,9 @@ def process_dataset(
         dataset_id = get_dataset_id(input_file)
         _LOGGER.info(f"Dataset ID: {dataset_id}")
 
-        # Use single standardized prompt template
         prompt_template = load_prompt()
         ensure_directory_exists(os.path.dirname(output_file))
 
-        # Check for existing progress
         processed_count = 0
         if os.path.exists(output_file):
             existing_data, _ = load_json_file(output_file)
@@ -275,8 +283,8 @@ def main():
     parser.add_argument(
         "--model",
         "-m",
-        default="tower",
-        help="Model to use for translation (default: tower). Options: tower, gemma3, or custom model name",
+        default="translation",
+        help="Model to use for translation (key from TRANSLATION_MODELS or DEFAULT_MODELS operation)",
     )
 
     args = parser.parse_args()
@@ -287,17 +295,18 @@ def main():
 
     output_file = args.output or generate_output_filename(args.input_file)
 
-    if args.model in TRANSLATION_MODELS:
-        model_name = TRANSLATION_MODELS[args.model]["ollama_name"]
-    else:
-        model_name = args.model
+    # Resolve model: if it's an operation name, get from DEFAULT_MODELS, otherwise use as-is
+    from .config.datasets import DEFAULT_MODELS
+
+    model_key = DEFAULT_MODELS.get(args.model, args.model)
+    resolved_name = TRANSLATION_MODELS.get(model_key, {}).get("ollama_name", model_key)
 
     _LOGGER.info(f"Processing: {args.input_file} -> {output_file}")
     _LOGGER.info(
-        f"Workers: {args.workers}, Limit: {args.limit or 'all'}, Model: {model_name}"
+        f"Workers: {args.workers}, Limit: {args.limit or 'all'}, Model: {resolved_name}"
     )
 
-    process_dataset(args.input_file, output_file, model_name, args.workers, args.limit)
+    process_dataset(args.input_file, output_file, model_key, args.workers, args.limit)
 
 
 if __name__ == "__main__":
